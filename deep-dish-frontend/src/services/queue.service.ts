@@ -1,4 +1,4 @@
-import { ClienteFilaEntry } from '@/types';
+import { ClienteFilaEntry, EstimativaEspera } from '@/types';
 import { httpClient } from './httpClient';
 
 export const queueService = {
@@ -21,6 +21,20 @@ export const queueService = {
   }): Promise<ClienteFilaEntry> {
     const qs = new URLSearchParams(params).toString();
     return httpClient.get(`/fila/posicao?${qs}`);
+  },
+
+  // Estimativa de espera "se eu entrasse agora" — usada antes de entrar na fila.
+  async consultarEstimativa(params: {
+    restaurante_id: string;
+    horario_reserva: string;
+    qntd_pessoas: number;
+  }): Promise<EstimativaEspera> {
+    const qs = new URLSearchParams({
+      restaurante_id: params.restaurante_id,
+      horario_reserva: params.horario_reserva,
+      qntd_pessoas: String(params.qntd_pessoas),
+    }).toString();
+    return httpClient.get(`/fila/estimativa?${qs}`);
   },
 
   // ─── Restaurante ────────────────────────────────────────

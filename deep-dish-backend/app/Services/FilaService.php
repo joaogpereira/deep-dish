@@ -258,6 +258,28 @@ class FilaService
         return $expiradas;
     }
 
+    /**
+     * Quantos clientes ativos há na fila de um restaurante para um horário específico.
+     * Devolve 0 quando a fila ainda nem existe — usado para estimar a posição de
+     * quem ainda não entrou (FilaController::estimativa).
+     */
+    public function contarAtivos(string $restauranteId, string $horarioReserva): int
+    {
+        $horario = Carbon::parse($horarioReserva);
+
+        $fila = Fila::query()
+            ->where('restaurante_id', $restauranteId)
+            ->where('horario_reserva', $horario)
+            ->where('status', Fila::STATUS_ABERTA)
+            ->first();
+
+        if (! $fila) {
+            return 0;
+        }
+
+        return ClienteFila::query()->ativas()->where('fila_id', $fila->id)->count();
+    }
+
     /** Público: o FilaController::removerRestaurante também precisa desta regra. */
     public function encerrarFilaSeVazia(Fila $fila): void
     {
