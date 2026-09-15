@@ -139,7 +139,13 @@ class FilaEstimativaEndpointTest extends TestCase
     public function test_nivel_especifico_quando_ha_historico_farto_no_mesmo_slot(): void
     {
         $restaurante = $this->restaurante();
-        $slot = Carbon::parse('2026-08-22 20:00:00', self::FUSO); // sábado
+        // Ancorado em Carbon::now(), não numa data fixa: uma data hardcoded
+        // fica no passado assim que o calendário andar e o POST no fim do
+        // teste (horario_reserva = $slot + 1 semana) passa a violar o
+        // "after:now" da validação — foi exatamente isso que quebrou no CI.
+        // +8 semanas dá folga para as 4 semanas de histórico simulado antes
+        // do slot e para a semana adicional do pedido novo.
+        $slot = Carbon::now(self::FUSO)->addWeeks(8)->setTime(20, 0);
 
         // 4 semanas x 6 posições = 24 observações no mesmo dia/horário — acima do MIN_AMOSTRA (20).
         foreach (range(0, 3) as $semana) {
