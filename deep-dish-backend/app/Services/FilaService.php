@@ -6,6 +6,7 @@ use App\Events\ClientePromovido;
 use App\Events\FilaAtualizada;
 use App\Events\OperacaoAtualizada;
 use App\Events\PosicaoFilaAtualizada;
+use App\Events\ReservaAtualizada;
 use App\Models\ClienteFila;
 use App\Models\ClienteMesa;
 use App\Models\Fila;
@@ -170,7 +171,7 @@ class FilaService
 
             $fila = $proximo->fila;
 
-            $proximo->registrarSaida(ClienteFila::STATUS_SAIDA_ATENDIDO);
+            $proximo->registrarChamada($clienteMesa);
 
             $this->encerrarFilaSeVazia($fila);
 
@@ -191,25 +192,70 @@ class FilaService
     }
 
     /**
-     * Quantos clientes ativos há na fila de um restaurante para um horário específico.
-     * Devolve 0 quando a fila ainda nem existe — usado para estimar a posição de
-     * quem ainda não entrou (FilaController::estimativa).
+     * Expira quem foi chamado para a mesa e não fez check-in dentro da
+     * tolerância (config 'fila.tolerancia_chamada_minutos'): a entrada vira
+     * 'expirado', a reserva da chamada expira e a mesa vai para o próximo da
+     * fila. Retorna quantas entradas expiraram.
+     *
+     * Idempotente: o que já expirou deixa de casar com a consulta. Entrada sem
+     * 'chamado_em' nunca é tocada — quem ainda espera, ou saiu por outro
+     * caminho, não foi chamado.
+     *
+     * "Confirmação" hoje é o check-in feito pelo restaurante
+     * (ReservaController::checkin), o único sinal de chegada que existe.
+     *
+     * Feature futura: confirmação pelo cliente no app ("estou chegando"), logo
+     * após a chamada. Com ela, quem confirmou ganharia mais prazo e quem não
+     * respondeu poderia expirar antes, liberando a mesa mais cedo. Precisaria
+     * de um endpoint do cliente, de uma coluna própria (ex.: 'confirmado_em')
+     * e de um botão na tela de reserva.
      */
-    public function contarAtivos(string $restauranteId, string $horarioReserva): int
+    public function expirarChamadosSemConfirmacao(): int
     {
-        $horario = Carbon::parse($horarioReserva);
+        $limite = now()->subMinutes((int) config('fila.tolerancia_chamada_minutos'));
 
-        $fila = Fila::query()
-            ->where('restaurante_id', $restauranteId)
-            ->where('horario_reserva', $horario)
-            ->where('status', Fila::STATUS_ABERTA)
-            ->first();
+        $candidatas = ClienteFila::withTrashed()
+            ->where('status_saida', ClienteFila::STATUS_SAIDA_ATENDIDO)
+            ->whereNotNull('chamado_em')
+            ->where('chamado_em', '<=', $limite)
+            ->whereHas('reservaDaChamada', fn ($q) => $q->where('status', 'confirmada'))
+            ->pluck('id');
 
-        if (! $fila) {
-            return 0;
+        $expiradas = 0;
+
+        foreach ($candidatas as $id) {
+            $expiradas += (int) DB::transaction(function () use ($id) {
+                $entrada = ClienteFila::withTrashed()->lockForUpdate()->find($id);
+                $reserva = ClienteMesa::with('mesa')->lockForUpdate()->find($entrada?->clientemesa_id);
+
+                // O check-in pode ter chegado entre a consulta e o lock.
+                if (! $reserva || $reserva->status !== 'confirmada') {
+                    return false;
+                }
+
+                $reserva->update(['status' => 'expirada']);
+                $reserva->registrarSaida();
+                $entrada->registrarNaoComparecimento();
+
+                // A reserva da chamada não mexe no status da mesa (só o check-in
+                // mexe), então não há o que desfazer. A mesa só vai para o
+                // próximo se continuar livre — o restaurante pode tê-la
+                // bloqueado nesse meio-tempo.
+                $mesa = $reserva->mesa;
+                if ($mesa && $mesa->status === 'livre') {
+                    $this->promoverProximoParaMesa((string) $mesa->restaurante_id, $mesa);
+                }
+
+                ReservaAtualizada::dispatch((string) $reserva->cliente_id);
+                if ($mesa) {
+                    OperacaoAtualizada::dispatch((string) $mesa->restaurante_id);
+                }
+
+                return true;
+            });
         }
 
-        return ClienteFila::query()->ativas()->where('fila_id', $fila->id)->count();
+        return $expiradas;
     }
 
     /** Público: o FilaController::removerRestaurante também precisa desta regra. */
