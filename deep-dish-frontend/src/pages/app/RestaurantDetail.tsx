@@ -8,9 +8,9 @@ import StatusBadge from '@/components/StatusBadge';
 import { restaurantsService } from '@/services/restaurants.service';
 import { queueService } from '@/services/queue.service';
 import { ApiError } from '@/services/httpClient';
-import { Restaurante, Mesa } from '@/types';
+import { Restaurante, Mesa, EstimativaEspera } from '@/types';
 import { ArrowLeft, MapPin, Clock, Phone, Star, Users, ListOrdered } from 'lucide-react';
-import { hojeEmBRT, toISOBRT } from '@/lib/utils';
+import { hojeEmBRT, toISOBRT, isEstimativaHistorica } from '@/lib/utils';
 import { storageUrl } from '@/lib/storage';
 import { getTipoLabel } from '@/constants/tipos';
 import { toast } from 'sonner';
@@ -35,6 +35,7 @@ const RestaurantDetail: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>(hojeEmBRT());
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [joiningQueue, setJoiningQueue] = useState(false);
+  const [estimativa, setEstimativa] = useState<EstimativaEspera | null>(null);
 
   // Verifica se o cliente logado já está na fila deste restaurante (pelo localStorage)
   const jaEmFilaNesteRestaurante = (() => {
@@ -119,6 +120,25 @@ const RestaurantDetail: React.FC = () => {
   const mesasFiltradas = mesas.filter(m => m.capacidade >= partySizeNum);
 
   const horarioReserva = selectedDate && selectedTime ? toISOBRT(selectedDate, selectedTime) : '';
+
+  // Estimativa de espera "se eu entrasse agora" — antes de decidir entrar na fila.
+  useEffect(() => {
+    if (!id || !restaurant?.fila_ativa || !horarioReserva || horarioForaDoFuncionamento || horarioNoPassado) {
+      setEstimativa(null);
+      return;
+    }
+    let cancelled = false;
+
+    queueService.consultarEstimativa({
+      restaurante_id: id,
+      horario_reserva: horarioReserva,
+      qntd_pessoas: partySizeNum,
+    })
+      .then(data => { if (!cancelled) setEstimativa(data); })
+      .catch(() => { if (!cancelled) setEstimativa(null); });
+
+    return () => { cancelled = true; };
+  }, [id, restaurant?.fila_ativa, horarioReserva, partySizeNum, horarioForaDoFuncionamento, horarioNoPassado]);
 
   const handleQueue = async () => {
     if (!id || !horarioReserva) return;
@@ -413,8 +433,20 @@ const RestaurantDetail: React.FC = () => {
               </div>
               <p className="text-xs text-muted-foreground">
                 {restaurant.tamanho_fila_atual ?? 0} {restaurant.tamanho_fila_atual === 1 ? 'pessoa' : 'pessoas'} aguardando
-                {restaurant.averageWaitTime ? ` · ~${restaurant.averageWaitTime} min` : ''}
               </p>
+              {estimativa && (
+                <p className="text-xs text-muted-foreground">
+                  Espera estimada:{' '}
+                  {isEstimativaHistorica(estimativa.nivel)
+                    ? `~${estimativa.espera_estimada_minutos} min`
+                    : `${estimativa.espera_estimada_minutos} min`}
+                  {!isEstimativaHistorica(estimativa.nivel) && (
+                    <span className="block text-[11px] italic text-muted-foreground/70">
+                      Estimativa aproximada
+                    </span>
+                  )}
+                </p>
+              )}
               {jaEmFilaNesteRestaurante ? (
                 <p className="text-xs text-primary font-medium">
                   Você já está na fila.{' '}
