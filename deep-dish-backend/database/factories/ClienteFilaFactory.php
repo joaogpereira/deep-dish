@@ -61,10 +61,10 @@ class ClienteFilaFactory extends Factory
     /**
      * No-show: foi chamado para a mesa e nao apareceu.
      *
-     * Em producao quem grava este status e a rotina de expiracao da fila (#164),
-     * que ainda nao existe. A factory cobre o estado desde ja porque a taxa de
-     * abandono do AnalyticsService soma 'desistiu' + 'expirado' — sem este
-     * estado, metade da metrica ficaria sem teste.
+     * Em producao quem grava este status e a 'fila:expirar-chamados' (#164),
+     * reclassificando um 'atendido' chamado que nao fez check-in. Aqui o status
+     * vai direto, sem chamada, porque a taxa de abandono do AnalyticsService so
+     * precisa do status: soma 'desistiu' + 'expirado'.
      */
     public function expirou(int $esperouMinutos = 25): static
     {

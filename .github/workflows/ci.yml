@@ -118,12 +118,29 @@ jobs:
       - name: Testes (PHPUnit)
         id: phpunit
         run: |
-          saida=$(php artisan test)
+          # `bash -e` (shell padrao deste run:) aborta o step na proria
+          # atribuicao `saida=$(...)` se php artisan test sair com codigo != 0,
+          # antes do `echo "$saida"` rodar — e a saida do PHPUnit nunca aparece
+          # no log. set +e/-e em volta so da chamada evita isso sem desligar
+          # -e para o resto do step.
+          set +e
+          saida=$(php artisan test 2>&1)
+          status=$?
+          set -e
+
           echo "$saida"
+
           # A saida vem com codigos de cor ANSI; sem remover, o resumo fica ilegivel.
+          # `|| true` evita que o -o pipefail do shell padrao aborte o step
+          # quando o grep nao encontra a linha "Tests:" (ex.: PHPUnit falhou
+          # antes de rodar algum teste).
           resumo=$(echo "$saida" | sed 's/\x1b\[[0-9;]*m//g' \
-            | grep -oE "Tests:.*" | tail -1 | sed 's/Tests:[[:space:]]*//')
+            | grep -oE "Tests:.*" | tail -1 | sed 's/Tests:[[:space:]]*//' || true)
           echo "resumo=${resumo:-sem resumo}" >> "$GITHUB_OUTPUT"
+
+          # Preserva o codigo de saida original do PHPUnit — e o que faz o
+          # step (e o job) continuar vermelho quando os testes falham.
+          exit $status
 
       # Escreve um resumo em markdown no topo da pagina do run.
       # `if: always()` faz o resumo aparecer tambem quando algum passo falha —

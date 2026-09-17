@@ -30,6 +30,23 @@ services:
       - backend
     restart: unless-stopped
 
+  # Roda as tarefas de routes/console.php (reservas:expirar, fila:expirar-chamados).
+  # Sem ele nada agendado executa sozinho no Docker.
+  scheduler:
+    build:
+      context: ./deep-dish-backend
+    volumes:
+      - ./deep-dish-backend:/var/www/html
+      - backend_vendor:/var/www/html/vendor
+    env_file:
+      - ./deep-dish-backend/.env
+    command: >
+      sh -c "composer install --no-interaction --prefer-dist --quiet
+      && php artisan schedule:work"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
   reverb:
     build:
       context: ./deep-dish-backend

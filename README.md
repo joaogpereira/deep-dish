@@ -298,6 +298,18 @@ Quando um usuário se cadastra ou faz login sem ter verificado o e-mail, o siste
 
 ---
 
+## ⏱️ Tarefas Agendadas
+
+O backend tem rotinas que precisam rodar sozinhas, definidas em `deep-dish-backend/routes/console.php`:
+
+- `reservas:expirar` (a cada 5 min) — expira reservas sem check-in e sessões encerradas pelo fechamento.
+- `fila:expirar-chamados` (a cada minuto) — quem foi chamado da fila para a mesa e não fez check-in dentro da tolerância (`FILA_TOLERANCIA_CHAMADA_MINUTOS`, padrão 15) vira `expirado`, e a mesa vai para o próximo.
+
+- **Com Docker:** sobem automaticamente no serviço `scheduler`.
+- **Sem Docker:** é preciso rodar `php artisan schedule:work` manualmente.
+
+---
+
 ## 🔐 Controle de Acesso
 
 O sistema possui proteção de rotas por perfil de usuário via token **JWT**:
