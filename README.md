@@ -119,11 +119,17 @@ cd deep-dish
 
 # 2. Configure as variáveis de ambiente do backend
 cp deep-dish-backend/.env.example deep-dish-backend/.env
-# edite o arquivo com suas credenciais (banco, JWT, SMTP)
+# edite o arquivo com suas credenciais (JWT, SMTP) — o banco local já vem pronto
 
 # 3. Suba os containers
 docker compose up --build
+
+# 4. Só na primeira vez: crie as tabelas e o cenário de exemplo
+docker compose exec backend php artisan migrate --seed
 ```
+
+> Até o passo 4 rodar, o `queue` e o `reverb` reiniciam em loop com
+> `relation "cache" does not exist` — é esperado, eles sobem sozinhos assim que as tabelas existem.
 
 Ou em background (libera o terminal):
 
@@ -136,6 +142,15 @@ Após subir:
 - **Backend (API):** http://localhost:8000
 
 > Na primeira execução o `composer install` e o `npm install` rodam automaticamente dentro dos containers. Pode levar alguns minutos.
+
+**Banco de desenvolvimento:** o serviço `postgres_test` guarda dois bancos — `deepdish_dev` (o que
+a aplicação usa) e `deepdish_test` (o da suíte). Os dois ficam no volume `postgres_test_data` e
+**sobrevivem ao `docker compose down`**; para zerar tudo, `docker compose down -v`.
+
+**Trocar para o Supabase (homologação):** no `deep-dish-backend/.env`, comente o bloco *Local* e
+descomente o bloco *Supabase* (a senha fica no painel, em Settings > Database). Depois rode
+`docker compose up -d` — **não** `docker compose restart`, que não relê o `.env` e deixa os
+containers no banco antigo. Os testes não são afetados: sempre usam o `deepdish_test` local.
 
 **Comandos úteis:**
 
@@ -192,7 +207,8 @@ php artisan queue:work --tries=3 --sleep=3
 VITE_API_URL=http://127.0.0.1:8000/api
 ```
 
-**Backend** — copie `deep-dish-backend/.env.example` e preencha banco de dados, JWT e SMTP.
+**Backend** — copie `deep-dish-backend/.env.example` e preencha JWT e SMTP. O banco já vem
+apontado para o `postgres_test` local (ver *Banco de desenvolvimento* acima).
 
 Gere as duas chaves obrigatórias (sem elas a aplicação não sobe):
 
@@ -239,34 +255,35 @@ npm run build                 # build de produção
 > navegador.
 
 Os testes rodam em **PostgreSQL tanto na sua máquina quanto na CI** — o `phpunit.xml` já aponta
-por padrão para um banco de teste local descartável, o mesmo que o job de backend da CI usa
+por padrão para um banco de teste local, o mesmo que o job de backend da CI usa
 (`deepdish_test`, usuário `postgres`, senha `secret`). Isso existe porque parte do SQL do projeto
 usa sintaxe específica do Postgres (`interval '1 hour'`, `ALTER COLUMN ... SET/DROP DEFAULT`) que
 SQLite não entende — testar em Postgres local evita descobrir isso só na CI.
 
-**Suba o banco de teste** (serviço `postgres_test` do `docker-compose.yml`, na raiz do repo):
+**Suba o banco** (serviço `postgres_test` do `docker-compose.yml`, na raiz do repo — se o stack
+inteiro já estiver de pé, ele já está rodando):
 
 ```bash
 docker compose up -d postgres_test
 ```
 
-**Rode os testes** normalmente — não precisa passar nenhuma variável `DB_*` na mão, o
-`phpunit.xml` já resolve para esse container:
+**Rode os testes a partir do host** (sua máquina, não de dentro de um container) — não precisa
+passar nenhuma variável `DB_*` na mão, o `phpunit.xml` já resolve para `127.0.0.1:5433/deepdish_test`:
 
 ```bash
 cd deep-dish-backend
 composer test                 # ou: php artisan test
 ```
 
-Para derrubar só o banco de teste depois (sem afetar backend/queue/reverb/frontend, se estiverem
-rodando): `docker compose stop postgres_test`. Ele não usa volume nomeado — os dados somem quando
-o container é removido (`docker compose rm -f postgres_test`), de propósito.
+O `deepdish_test` mora no mesmo container que o `deepdish_dev`, mas o `RefreshDatabase` só limpa
+o `deepdish_test` — o seu cenário de desenvolvimento não é tocado.
 
-> ⚠️ `tests/TestCase.php` tem uma trava de segurança: antes de qualquer teste, ela confere se a
-> conexão de banco aponta para um host permitido (`127.0.0.1`, `localhost` ou `postgres_test`) e
-> aborta imediatamente — antes de `RefreshDatabase` rodar — se detectar o host do Supabase
-> compartilhado do time ou qualquer host fora dessa lista. O projeto não tem staging nem backup
-> desse banco, então isso é intencional e não deve ser enfraquecido para "rodar mais fácil".
+> ⚠️ `tests/TestCase.php` tem uma trava de segurança em três camadas, conferida antes de
+> `RefreshDatabase` rodar: (1) aborta se o host for o Supabase compartilhado do time; (2) só aceita
+> hosts da allowlist (`127.0.0.1`, `localhost` ou `postgres_test`); (3) só aceita bancos cujo nome
+> termina em `_test`. A camada 3 existe porque, **de dentro de um container**, o `DB_*` do `.env`
+> vence o `phpunit.xml` e a suíte cairia no `deepdish_dev`. O projeto não tem staging nem backup do
+> Supabase, então isso é intencional e não deve ser enfraquecido para "rodar mais fácil".
 
 ---
 
