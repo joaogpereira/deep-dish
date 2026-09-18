@@ -4,7 +4,9 @@ import { getAuthHeaders } from './api';
 const BASE = import.meta.env.VITE_API_URL;
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  // `data` é o corpo JSON do erro, para quem precisa de mais que a mensagem
+  // (ex.: o 404 de /fila/posicao diz em `status_saida` por que o cliente saiu).
+  constructor(public status: number, message: string, public data?: unknown) {
     super(message);
     this.name = 'ApiError';
   }
@@ -170,7 +172,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
       }
       return Promise.reject(new ApiError(403, 'email_not_verified'));
     }
-    throw new ApiError(res.status, extrairMensagem(data, res.status));
+    throw new ApiError(res.status, extrairMensagem(data, res.status), data);
   }
 
   return data as T;
