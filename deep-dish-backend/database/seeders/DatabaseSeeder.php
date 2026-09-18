@@ -11,6 +11,9 @@ use App\Models\Mesa;
 use App\Models\Restaurante;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use Illuminate\Http\File;
+use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 
 /**
  * Cenario de desenvolvimento: dois restaurantes prontos para clicar.
@@ -45,6 +48,8 @@ class DatabaseSeeder extends Seeder
     {
         $restaurante = Restaurante::factory()->comFilaAtiva()->create([
             'name' => 'Cantina do Vale',
+            'tipo' => 'Brasileira',
+            'imagem_url' => $this->foto('cantina-do-vale.jpg'),
             'email' => 'fila@deepdish.test',
             'password' => self::SENHA,
         ]);
@@ -78,6 +83,8 @@ class DatabaseSeeder extends Seeder
     {
         $restaurante = Restaurante::factory()->comReservas()->create([
             'name' => 'Trattoria Bella',
+            'tipo' => 'Italiana',
+            'imagem_url' => $this->foto('trattoria-bella.jpg'),
             'email' => 'reservas@deepdish.test',
             'password' => self::SENHA,
         ]);
@@ -107,5 +114,25 @@ class DatabaseSeeder extends Seeder
             ->cancelada()->create();
 
         return $restaurante;
+    }
+
+    /**
+     * Copia uma foto de database/seeders/imagens pelo mesmo disco do upload de
+     * verdade (FILESYSTEM_DISK) — funciona igual no disco local e no Supabase.
+     * Nome fixo: rodar o seed de novo sobrescreve em vez de acumular arquivos.
+     */
+    private function foto(string $arquivo): string
+    {
+        $caminho = Storage::putFileAs(
+            'restaurantes',
+            new File(database_path("seeders/imagens/{$arquivo}")),
+            "seed-{$arquivo}"
+        );
+
+        if (! $caminho) {
+            throw new RuntimeException("Não foi possível copiar a foto do seed: {$arquivo}");
+        }
+
+        return $caminho;
     }
 }

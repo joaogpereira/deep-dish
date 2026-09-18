@@ -152,6 +152,13 @@ descomente o bloco *Supabase* (a senha fica no painel, em Settings > Database). 
 `docker compose up -d` — **não** `docker compose restart`, que não relê o `.env` e deixa os
 containers no banco antigo. Os testes não são afetados: sempre usam o `deepdish_test` local.
 
+**Imagens dos restaurantes:** o banco guarda só o caminho do arquivo (`restaurantes/x.jpg`), e a
+API devolve a URL pronta, montada pelo disco em `FILESYSTEM_DISK`. Local, o disco é `public`
+(`storage/app/public`, servido pelo backend em `localhost:8000/storage`). Em homologação e
+produção, é `supabase` — o Supabase Storage, pela API compatível com S3. Trocar é só o `.env`
+(bloco *Imagens*), sem migrar dados nem mexer no frontend. O seed copia as fotos de
+`database/seeders/imagens/` pelo mesmo disco, então funciona nos dois.
+
 **Comandos úteis:**
 
 ```bash

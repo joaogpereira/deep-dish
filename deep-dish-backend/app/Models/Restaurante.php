@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 
 class Restaurante extends Authenticatable implements JWTSubject, MustVerifyEmail
@@ -114,6 +115,21 @@ class Restaurante extends Authenticatable implements JWTSubject, MustVerifyEmail
         ]);
 
         return implode(', ', $partes);
+    }
+
+    /**
+     * O banco guarda só o caminho no disco ("restaurantes/x.jpg"); a URL sai daqui,
+     * pelo disco configurado em FILESYSTEM_DISK. Assim trocar de storage (local →
+     * Supabase) não exige migrar dados nem mexer no frontend. URLs absolutas
+     * legadas passam direto. Para ler o caminho cru: getRawOriginal('imagem_url').
+     */
+    public function getImagemUrlAttribute(?string $valor): ?string
+    {
+        if (blank($valor)) {
+            return null;
+        }
+
+        return str_starts_with($valor, 'http') ? $valor : Storage::url($valor);
     }
 
     public function getJWTIdentifier()
