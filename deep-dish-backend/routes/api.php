@@ -60,6 +60,7 @@ Route::middleware(['auth:api', \App\Http\Middleware\VerifyJwtTokenVersion::class
     Route::delete('/fila/{id}', [App\Http\Controllers\FilaController::class, 'destroy'])
         ->where('id', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
     Route::get('/fila/posicao', [App\Http\Controllers\FilaController::class, 'consultarPosicao']);
+    Route::get('/fila/estimativa', [App\Http\Controllers\FilaController::class, 'estimativa']);
 });
 
 // Reservas — cliente

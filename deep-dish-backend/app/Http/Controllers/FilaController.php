@@ -6,6 +6,7 @@ use App\Events\FilaAtualizada;
 use App\Events\PosicaoFilaAtualizada;
 use App\Models\ClienteFila;
 use App\Models\Fila;
+use App\Services\EstimativaEsperaService;
 use App\Services\FilaService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -14,7 +15,10 @@ use InvalidArgumentException;
 
 class FilaController extends Controller
 {
-    public function __construct(private FilaService $filaService) {}
+    public function __construct(
+        private FilaService $filaService,
+        private EstimativaEsperaService $estimativaService,
+    ) {}
 
     public function store(Request $request): JsonResponse
     {
@@ -24,7 +28,8 @@ class FilaController extends Controller
             'qntd_pessoas' => ['required', 'integer', 'min:1'],
         ]);
 
-        $horarioUTC = Carbon::parse($validated['horario_reserva'])->utc()->format('Y-m-d H:i:s');
+        $horarioReserva = Carbon::parse($validated['horario_reserva'])->utc();
+        $horarioUTC = $horarioReserva->format('Y-m-d H:i:s');
 
         try {
             $clienteFila = $this->filaService->enfileirar(
@@ -39,9 +44,18 @@ class FilaController extends Controller
 
         $clienteFila->load('fila')->append('posicao');
 
+        $estimativa = $this->estimativaService->estimar(
+            $validated['restaurante_id'],
+            (int) $clienteFila->posicao,
+            (int) $validated['qntd_pessoas'],
+            $horarioReserva
+        );
+
+        $data = array_merge($clienteFila->toArray(), $estimativa);
+
         return response()->json([
             'message' => 'Você está na posição '.$clienteFila->posicao.' da fila.',
-            'data' => $clienteFila,
+            'data' => $data,
         ], 201);
     }
 
@@ -77,9 +91,21 @@ class FilaController extends Controller
 
         // Posição calculada em memória: a lista já está ordenada e contém só ativos.
         // Usar ->append('posicao') aqui dispararia um COUNT por registro.
-        $entries->groupBy('fila_id')->each(function ($daFila) {
-            $daFila->values()->each(function ($registro, $i) {
-                $registro->setAttribute('posicao', $i + 1);
+        $entries->groupBy('fila_id')->each(function ($daFila) use ($restauranteId) {
+            $daFila->values()->each(function ($registro, $i) use ($restauranteId) {
+                $posicao = $i + 1;
+                $registro->setAttribute('posicao', $posicao);
+
+                $estimativa = $this->estimativaService->estimar(
+                    (string) $restauranteId,
+                    $posicao,
+                    (int) $registro->qntd_pessoas,
+                    $registro->fila->horario_reserva
+                );
+
+                foreach ($estimativa as $campo => $valor) {
+                    $registro->setAttribute($campo, $valor);
+                }
             });
         });
 
@@ -120,7 +146,8 @@ class FilaController extends Controller
             'horario_reserva' => ['required', 'date'],
         ]);
 
-        $horarioUTC = Carbon::parse($validated['horario_reserva'])->utc()->format('Y-m-d H:i:s');
+        $horarioReserva = Carbon::parse($validated['horario_reserva'])->utc();
+        $horarioUTC = $horarioReserva->format('Y-m-d H:i:s');
 
         $registro = $this->filaService->consultarPosicao(
             (string) auth('api')->id(),
@@ -141,6 +168,40 @@ class FilaController extends Controller
 
         $registro->load('fila');
 
-        return response()->json($registro);
+        $estimativa = $this->estimativaService->estimar(
+            $validated['restaurante_id'],
+            (int) $registro->posicao,
+            (int) $registro->qntd_pessoas,
+            $horarioReserva
+        );
+
+        $data = array_merge($registro->toArray(), $estimativa);
+
+        return response()->json($data);
+    }
+
+    // ─── Cliente: estimativa antes de entrar na fila ────────
+    public function estimativa(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'restaurante_id' => ['required', 'string', 'uuid', 'exists:restaurante,id'],
+            'horario_reserva' => ['required', 'date'],
+            'qntd_pessoas' => ['required', 'integer', 'min:1'],
+        ]);
+
+        $horarioReserva = Carbon::parse($validated['horario_reserva'])->utc();
+        $horarioUTC = $horarioReserva->format('Y-m-d H:i:s');
+
+        // Posição hipotética: quem entrasse agora ficaria depois de todo mundo já ativo.
+        $posicaoEstimada = $this->filaService->contarAtivos($validated['restaurante_id'], $horarioUTC) + 1;
+
+        $estimativa = $this->estimativaService->estimar(
+            $validated['restaurante_id'],
+            $posicaoEstimada,
+            (int) $validated['qntd_pessoas'],
+            $horarioReserva
+        );
+
+        return response()->json($estimativa);
     }
 }

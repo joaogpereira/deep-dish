@@ -10,7 +10,7 @@ import { reservationsService } from '@/services/reservations.service';
 import { Reserva } from '@/types';
 import { Users, Clock, Hash, ListOrdered, Home, PartyPopper, CalendarCheck, Info } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatBRT } from '@/lib/utils';
+import { formatBRT, isEstimativaHistorica } from '@/lib/utils';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useFilaAtual, FilaAtual } from '@/hooks/useFilaAtual';
 import { useAuth } from '@/contexts/AuthContext';
@@ -209,6 +209,18 @@ const Queue: React.FC = () => {
   // ── Tela: aguardando na fila ──────────────────────────────────────────────
   const { entry, restaurantName, restaurantImage, horarioReserva } = state;
 
+  // Exige minutos + nivel válidos juntos — um nivel ausente/quebrado não pode
+  // ser silenciosamente tratado como 'padrao' (ver isEstimativaHistorica).
+  const nivelValido = entry.nivel === 'especifico' || entry.nivel === 'amplo' || entry.nivel === 'padrao';
+  const temEstimativa = typeof entry.espera_estimada_minutos === 'number'
+    && !Number.isNaN(entry.espera_estimada_minutos)
+    && nivelValido;
+  const esperaHistorica = isEstimativaHistorica(entry.nivel);
+  const esperaValue = temEstimativa
+    ? (esperaHistorica ? `~${entry.espera_estimada_minutos}` : `${entry.espera_estimada_minutos}`)
+    : '—';
+  const esperaCaption = temEstimativa && !esperaHistorica ? 'Estimativa aproximada' : undefined;
+
   return (
     <div className="max-w-lg mx-auto space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -248,9 +260,9 @@ const Queue: React.FC = () => {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3">
           {[
-            { icon: Hash,  value: entry.posicao,      label: 'Posição' },
-            { icon: Clock, value: '~30',              label: 'min est.' },
-            { icon: Users, value: entry.qntd_pessoas, label: 'Pessoas' },
+            { icon: Hash,  value: entry.posicao,      label: 'Posição', caption: undefined as string | undefined },
+            { icon: Clock, value: esperaValue,        label: 'min est.', caption: esperaCaption },
+            { icon: Users, value: entry.qntd_pessoas, label: 'Pessoas', caption: undefined as string | undefined },
           ].map((stat, i) => (
             <div key={i} className="rounded-xl bg-secondary/60 p-4 text-center">
               <stat.icon className="mx-auto h-5 w-5 text-primary" />
@@ -258,6 +270,9 @@ const Queue: React.FC = () => {
                 {stat.value}
               </p>
               <p className="text-[11px] text-muted-foreground mt-0.5">{stat.label}</p>
+              {stat.caption && (
+                <p className="text-[10px] text-muted-foreground/70 italic mt-0.5">{stat.caption}</p>
+              )}
             </div>
           ))}
         </div>

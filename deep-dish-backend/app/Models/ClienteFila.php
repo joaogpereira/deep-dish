@@ -35,8 +35,8 @@ class ClienteFila extends Model
         'qntd_pessoas',
     ];
 
-    // 'chamado_em' fica fora do $fillable como os demais campos de histórico:
-    // quem escreve é a rotina de chamada (#12), não um request do cliente.
+    // 'chamado_em' e 'clientemesa_id' ficam fora do $fillable como os demais
+    // campos de histórico: quem escreve é registrarChamada(), não um request.
 
     // 'posicao' saiu do $appends de propósito: dispara um COUNT por registro.
     // Use ->append('posicao') apenas onde a posição é realmente necessária.
@@ -91,6 +91,45 @@ class ClienteFila extends Model
     }
 
     /**
+     * Saída por chamada para a mesa: grava quando o cliente foi chamado e qual
+     * reserva nasceu disso, e fecha a entrada como 'atendido'.
+     *
+     * Esse 'atendido' é provisório até o check-in da reserva. Se ele não vier
+     * dentro da tolerância, a 'fila:expirar-chamados' reclassifica a entrada via
+     * registrarNaoComparecimento().
+     */
+    public function registrarChamada(ClienteMesa $reserva): void
+    {
+        if ($this->status_saida !== null) {
+            return;
+        }
+
+        $this->forceFill([
+            'chamado_em' => now(),
+            'clientemesa_id' => $reserva->id,
+        ]);
+
+        $this->registrarSaida(self::STATUS_SAIDA_ATENDIDO);
+    }
+
+    /**
+     * Foi chamado e não apareceu: 'atendido' vira 'expirado'. Idempotente.
+     *
+     * Só vale para entrada fechada por registrarChamada() — sem 'chamado_em' não
+     * houve chamada, e um 'atendido' sem chamada não é provisório. 'saiu_em' e
+     * 'tempo_espera_segundos' ficam como estão: medem a espera até a chamada,
+     * que foi real.
+     */
+    public function registrarNaoComparecimento(): void
+    {
+        if ($this->status_saida !== self::STATUS_SAIDA_ATENDIDO || $this->chamado_em === null) {
+            return;
+        }
+
+        $this->forceFill(['status_saida' => self::STATUS_SAIDA_EXPIRADO])->save();
+    }
+
+    /**
      * Posição atual na fila, contando apenas clientes ativos.
      * Retorna null para quem já saiu — não existe "posição" de quem não está na fila.
      */
@@ -121,5 +160,11 @@ class ClienteFila extends Model
     public function cliente(): BelongsTo
     {
         return $this->belongsTo(Cliente::class, 'cliente_id');
+    }
+
+    /** Reserva criada quando esta entrada foi chamada para a mesa. */
+    public function reservaDaChamada(): BelongsTo
+    {
+        return $this->belongsTo(ClienteMesa::class, 'clientemesa_id');
     }
 }

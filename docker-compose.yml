@@ -30,6 +30,23 @@ services:
       - backend
     restart: unless-stopped
 
+  # Roda as tarefas de routes/console.php (reservas:expirar, fila:expirar-chamados).
+  # Sem ele nada agendado executa sozinho no Docker.
+  scheduler:
+    build:
+      context: ./deep-dish-backend
+    volumes:
+      - ./deep-dish-backend:/var/www/html
+      - backend_vendor:/var/www/html/vendor
+    env_file:
+      - ./deep-dish-backend/.env
+    command: >
+      sh -c "composer install --no-interaction --prefer-dist --quiet
+      && php artisan schedule:work"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
   reverb:
     build:
       context: ./deep-dish-backend
@@ -47,10 +64,17 @@ services:
       - backend
     restart: unless-stopped
 
-  # Banco de teste local, descartável — espelha o Postgres efêmero da CI
-  # (.github/workflows/ci.yml). Nao entra em depends_on de nada: e opt-in,
-  # so sobe quando alguem for rodar a suite localmente contra Postgres.
-  # Dados nao sao persistidos em volume de proposito (descartavel de verdade).
+  # Postgres local com DOIS bancos:
+  #   - deepdish_test: da suite de testes (espelha a CI em .github/workflows/ci.yml).
+  #     O RefreshDatabase limpa e remigra a cada 'php artisan test'.
+  #   - deepdish_dev: do desenvolvimento, criado pelo script em
+  #     docker/postgres_test/init na primeira subida do volume.
+  # Os dados ficam no volume postgres_test_data e sobrevivem ao 'docker compose
+  # down'. Para zerar tudo (os dois bancos): docker compose down -v
+  #
+  # Quem fala com ele:
+  #   - containers (backend/queue/reverb): postgres_test:5432, via .env
+  #   - testes rodando no host (phpunit.xml): 127.0.0.1:5433
   postgres_test:
     image: postgres:16
     environment:
@@ -59,6 +83,9 @@ services:
       POSTGRES_DB: deepdish_test
     ports:
       - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./docker/postgres_test/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -80,3 +107,4 @@ services:
 volumes:
   frontend_node_modules:
   backend_vendor:
+  postgres_test_data:

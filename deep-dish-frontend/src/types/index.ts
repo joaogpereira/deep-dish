@@ -32,8 +32,20 @@ export interface Restaurante {
   price_range?: number | null;
   reservations_enabled?: boolean;
   description?: string | null;
-  // Campo para implementação futura
-  averageWaitTime?: number;
+}
+
+// Nível de confiança da estimativa de espera (EstimativaEsperaService).
+// 'especifico'/'amplo' = baseado em histórico real; 'padrao' = fallback sem dado suficiente.
+export type NivelEstimativa = 'especifico' | 'amplo' | 'padrao';
+
+// Retorno de EstimativaEsperaService::estimar(), devolvido por
+// POST /fila, GET /fila/posicao e GET /fila/estimativa.
+export interface EstimativaEspera {
+  espera_estimada_minutos: number;
+  espera_estimada_segundos: number;
+  nivel: NivelEstimativa;
+  amostra: number;
+  posicao: number;
 }
 
 export type User = Cliente | Restaurante;
@@ -91,8 +103,10 @@ export interface Reserva {
   cliente?: Cliente;
 }
 
-// Entrada na fila conforme retornada pelo backend (ClienteFila + relações)
-export interface ClienteFilaEntry {
+// Entrada na fila conforme retornada pelo backend (ClienteFila + relações).
+// POST /fila e GET /fila/posicao acrescentam os campos de EstimativaEspera —
+// opcionais aqui porque a tela não deve inventar número quando ainda não chegaram.
+export interface ClienteFilaEntry extends Partial<EstimativaEspera> {
   id: string;
   fila_id: string;
   cliente_id: string;
