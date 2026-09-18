@@ -15,6 +15,7 @@ import { storageUrl } from '@/lib/storage';
 import { getTipoLabel } from '@/constants/tipos';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFilaAtual } from '@/hooks/useFilaAtual';
 
 interface PublicStaff { name: string; cargo: string; horario?: string | null; }
 
@@ -36,16 +37,9 @@ const RestaurantDetail: React.FC = () => {
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [joiningQueue, setJoiningQueue] = useState(false);
 
-  // Verifica se o cliente logado já está na fila deste restaurante (pelo localStorage)
-  const jaEmFilaNesteRestaurante = (() => {
-    try {
-      const saved = localStorage.getItem('deepdish_fila');
-      if (!saved) return false;
-      const state = JSON.parse(saved);
-      return state?.entry?.fila?.restaurante_id === id
-        && state?.clienteId === user?.id;
-    } catch { return false; }
-  })();
+  // O cliente logado já está na fila deste restaurante?
+  const { fila } = useFilaAtual();
+  const jaEmFilaNesteRestaurante = fila?.entry.fila?.restaurante_id === id;
 
   // Carrega dados do restaurante
   useEffect(() => {

@@ -131,6 +131,11 @@ class FilaController extends Controller
         if (! $registro) {
             return response()->json([
                 'message' => 'Você não está na fila para este horário.',
+                'status_saida' => $this->filaService->statusSaida(
+                    (string) auth('api')->id(),
+                    $validated['restaurante_id'],
+                    $horarioUTC
+                ),
             ], 404);
         }
 

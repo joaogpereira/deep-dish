@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { getEcho } from '@/lib/echo';
 
-type Handlers = Record<string, () => void>;
+type Handlers = Record<string, (dados: unknown) => void>;
 
 interface PusherLike {
   connection: {
@@ -25,7 +25,8 @@ interface PusherLike {
  * @param canal Nome do canal sem o prefixo 'private-' (ex.: `restaurante.${id}`).
  *              Passe undefined enquanto o id ainda nao existir.
  * @param handlers Mapa de evento -> callback. A chave e o nome do broadcastAs()
- *                 sem o ponto inicial (ex.: 'fila.atualizada').
+ *                 sem o ponto inicial (ex.: 'fila.atualizada'); o callback recebe
+ *                 o payload do evento (as propriedades publicas dele no backend).
  */
 export function useRealtime(
   canal: string | undefined,
@@ -51,7 +52,7 @@ export function useRealtime(
     const assinatura = echo.private(canal);
 
     eventos.split('|').filter(Boolean).forEach(evento => {
-      assinatura.listen(`.${evento}`, () => handlersRef.current[evento]?.());
+      assinatura.listen(`.${evento}`, (dados: unknown) => handlersRef.current[evento]?.(dados));
     });
 
     const resync = () => reconectarRef.current?.();

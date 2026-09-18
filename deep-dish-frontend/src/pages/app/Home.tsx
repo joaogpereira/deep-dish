@@ -6,32 +6,22 @@ import StatusBadge from '@/components/StatusBadge';
 import EmptyState from '@/components/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { reservationsService } from '@/services/reservations.service';
-import { queueService } from '@/services/queue.service';
 import { ApiError } from '@/services/httpClient';
 import { storageUrl } from '@/lib/storage';
-import { Paginated, Reserva, ClienteFilaEntry } from '@/types';
+import { Paginated, Reserva } from '@/types';
 import { toast } from 'sonner';
 import { formatBRT } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRealtime } from '@/hooks/useRealtime';
+import { useFilaAtual, FilaAtual } from '@/hooks/useFilaAtual';
 
 const formatDate = (iso: string) => formatBRT(iso, { day: '2-digit', month: '2-digit', year: 'numeric' });
 const formatTime = (iso: string) => formatBRT(iso, { hour: '2-digit', minute: '2-digit' });
 
 const EMPTY_PAGE: Paginated<Reserva> = { data: [], current_page: 1, last_page: 1, per_page: 10, total: 0 };
-const FILA_KEY = 'deepdish_fila';
-
-interface FilaState {
-  entry: ClienteFilaEntry;
-  restaurantName: string;
-  restaurantImage?: string;
-  horarioReserva: string;
-  clienteId?: string;
-}
-
 // ─── Card de fila ativa ──────────────────────────────────────────────────────
 
-const FilaCard = ({ state, onClick }: { state: FilaState; onClick: () => void }) => (
+const FilaCard = ({ state, onClick }: { state: FilaAtual; onClick: () => void }) => (
   <button onClick={onClick} className="w-full text-left group">
     <div className="flex items-center gap-4 rounded-2xl bg-card p-4 shadow-card transition-all duration-200 ease-out-expo group-hover:shadow-card-hover group-hover:-translate-y-0.5 border border-primary/20">
       <div className="h-14 w-14 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
@@ -199,7 +189,7 @@ const AppHome: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const [filaState,      setFilaState]      = useState<FilaState | null>(null);
+  const { fila: filaState, saida, atualizar: atualizarFila } = useFilaAtual();
   const [activePage,     setActivePage]     = useState(1);
   const [finishedPage,   setFinishedPage]   = useState(1);
   const [activeData,     setActiveData]     = useState<Paginated<Reserva>>(EMPTY_PAGE);
@@ -270,87 +260,24 @@ const AppHome: React.FC = () => {
     }
   }, []);
 
-  // Verifica fila no localStorage e atualiza posição via API
-  const checkFilaStatus = useCallback(async () => {
-    const saved = localStorage.getItem(FILA_KEY);
-    if (!saved) return;
-
-    let parsed: FilaState;
-    try { parsed = JSON.parse(saved); } catch { return; }
-
-    const filaId  = parsed.entry.fila?.restaurante_id;
-    const horario = parsed.entry.fila?.horario_reserva;
-    if (!filaId || !horario) return;
-
-    try {
-      const updated = await queueService.consultarPosicao({ restaurante_id: filaId, horario_reserva: horario });
-      const novo = { ...parsed, entry: updated };
-      setFilaState(novo);
-      localStorage.setItem(FILA_KEY, JSON.stringify(novo));
-    } catch {
-      // 404 = saiu da fila — verifica se foi promovido ou removido pelo restaurante
-      localStorage.removeItem(FILA_KEY);
-      setFilaState(null);
-      try {
-        const reservas = await reservationsService.listUserReservations({ status_group: 'active', per_page: 5 });
-        const foiPromovido = reservas.data.some(r => r.status === 'confirmada');
-        if (!foiPromovido) {
-          toast.info('Sua posição na fila foi encerrada', {
-            description: 'O restaurante reorganizou os atendimentos. Fique à vontade para entrar novamente.',
-            duration: 10000,
-          });
-        }
-      } catch { /* ignore */ }
-    }
-  }, []);
-
-  // ── Carrega estado inicial da fila (com validações de usuário e expiração) ──
+  // Saída da fila que não foi promoção nem desistência do próprio cliente.
   useEffect(() => {
-    if (!user?.id) return;
-    const saved = localStorage.getItem(FILA_KEY);
-    if (!saved) return;
-
-    let parsed: FilaState;
-    try { parsed = JSON.parse(saved); } catch { localStorage.removeItem(FILA_KEY); return; }
-
-    if (parsed.clienteId && parsed.clienteId !== user.id) {
-      localStorage.removeItem(FILA_KEY);
-      return;
-    }
-
-    const limite = new Date(parsed.horarioReserva);
-    limite.setHours(limite.getHours() + 2);
-    if (limite < new Date()) {
-      localStorage.removeItem(FILA_KEY);
-      return;
-    }
-
-    const filaId  = parsed.entry.fila?.restaurante_id;
-    const horario = parsed.entry.fila?.horario_reserva;
-    if (filaId && horario) {
-      queueService.consultarPosicao({ restaurante_id: filaId, horario_reserva: horario })
-        .then(updated => {
-          const novo = { ...parsed, entry: updated };
-          setFilaState(novo);
-          localStorage.setItem(FILA_KEY, JSON.stringify(novo));
-        })
-        .catch(() => {
-          localStorage.removeItem(FILA_KEY);
-        });
-    } else {
-      setFilaState(parsed);
-    }
-  }, [user?.id]);
+    if (!saida || saida.status === 'atendido' || saida.status === 'desistiu') return;
+    toast.info('Sua posição na fila foi encerrada', {
+      description: 'O restaurante reorganizou os atendimentos. Fique à vontade para entrar novamente.',
+      duration: 10000,
+    });
+  }, [saida]);
 
   useEffect(() => { fetchActive(activePage); },    [fetchActive, activePage]);
   useEffect(() => { fetchFinished(finishedPage); }, [fetchFinished, finishedPage]);
 
   // Tempo real, no lugar do polling de 30s. 'cliente.promovido' entra aqui também
-  // porque a promoção cria uma reserva — a lista de ativas muda junto.
+  // porque a promoção cria uma reserva — a lista de ativas muda junto. A posição
+  // na fila quem mantém é o useFilaAtual.
   const sincronizar = useCallback(() => {
-    checkFilaStatus();
     fetchActive(activePage, true);
-  }, [checkFilaStatus, fetchActive, activePage]);
+  }, [fetchActive, activePage]);
 
   useRealtime(
     user?.id ? `cliente.${user.id}` : undefined,
@@ -364,13 +291,13 @@ const AppHome: React.FC = () => {
   // Refetch ao voltar para a aba
   useEffect(() => {
     const onFocus = () => {
-      checkFilaStatus();
+      atualizarFila();
       fetchActive(activePage, true);
       fetchFinished(finishedPage, true);
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [checkFilaStatus, fetchActive, fetchFinished, activePage, finishedPage]);
+  }, [atualizarFila, fetchActive, fetchFinished, activePage, finishedPage]);
 
   const loading = loadingActive && loadingFinished;
   const hasAny  = activeData.total > 0 || finishedData.total > 0;

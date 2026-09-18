@@ -131,6 +131,29 @@ class FilaService
     }
 
     /**
+     * Por que o cliente saiu da fila deste horário, ou null se nunca esteve nela.
+     *
+     * Complementa o 404 de consultarPosicao: sem isso, a tela do cliente não
+     * distingue "foi promovido para mesa" de "foi removido" e precisava adivinhar
+     * listando reservas. Ignora o status da fila de propósito — promover o último
+     * da fila a encerra.
+     */
+    public function statusSaida(
+        string $clienteId,
+        string $restauranteId,
+        string $horarioReserva
+    ): ?string {
+        return ClienteFila::withTrashed()
+            ->where('cliente_id', $clienteId)
+            ->whereNotNull('status_saida')
+            ->whereHas('fila', fn ($q) => $q
+                ->where('restaurante_id', $restauranteId)
+                ->where('horario_reserva', Carbon::parse($horarioReserva)))
+            ->latest('saiu_em')
+            ->value('status_saida');
+    }
+
+    /**
      * Promove o próximo da fila para uma mesa que acabou de ser liberada.
      * Busca a entrada mais antiga entre todas as filas abertas do restaurante.
      */

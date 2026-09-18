@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import StatusBadge from '@/components/StatusBadge';
@@ -7,24 +7,18 @@ import EmptyState from '@/components/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { queueService } from '@/services/queue.service';
 import { reservationsService } from '@/services/reservations.service';
-import { ClienteFilaEntry, Reserva } from '@/types';
+import { Reserva } from '@/types';
 import { Users, Clock, Hash, ListOrdered, Home, PartyPopper, CalendarCheck, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatBRT } from '@/lib/utils';
 import { useRealtime } from '@/hooks/useRealtime';
-
-const STORAGE_KEY = 'deepdish_fila';
-
-interface QueueState {
-  entry: ClienteFilaEntry;
-  restaurantName: string;
-  restaurantImage?: string;
-  horarioReserva: string;
-  clienteId?: string;
-}
+import { useFilaAtual, FilaAtual } from '@/hooks/useFilaAtual';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface PromotedInfo {
-  reserva: Reserva;
+  // Sem socket, a promoção é descoberta pelo 404 da posição, que não traz a
+  // reserva; aí a tela mostra só o restaurante.
+  reserva?: Reserva;
   restaurantName: string;
   restaurantImage?: string;
 }
@@ -32,102 +26,45 @@ interface PromotedInfo {
 const Queue: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const navState = location.state as QueueState | null;
+  const navState = location.state as FilaAtual | null;
+  const { user } = useAuth();
+  const { fila: state, saida, salvar, limpar } = useFilaAtual();
 
-  const [state, setState]           = useState<QueueState | null>(null);
   const [loading, setLoading]       = useState(true);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const [promoted, setPromoted]     = useState<PromotedInfo | null>(null);
-  const [removido, setRemovido]     = useState(false);
+  const [promovidoPorEvento, setPromovidoPorEvento] = useState<PromotedInfo | null>(null);
 
-  // Carrega do navigation state ou localStorage
+  // Quem acabou de entrar na fila chega com ela no navigation state.
   useEffect(() => {
-    if (navState?.entry) {
-      setState(navState);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(navState));
-      setLoading(false);
-      return;
-    }
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try { setState(JSON.parse(saved)); } catch { /* ignore */ }
-    }
+    if (navState?.entry) salvar(navState);
     setLoading(false);
   }, []);
 
-  // Verifica se o cliente foi promovido para reserva (chamado quando consultarPosicao retorna 404)
-  const verificarPromocao = useCallback(async (currentState: QueueState): Promise<boolean> => {
-    try {
-      const pagina = await reservationsService.listUserReservations({ status_group: 'active', per_page: 5 });
-      const confirmada = pagina.data.find(r => r.status === 'confirmada');
-      if (confirmada) {
-        setPromoted({
-          reserva:         confirmada,
-          restaurantName:  confirmada.mesa?.restaurante?.name  ?? currentState.restaurantName,
-          restaurantImage: confirmada.mesa?.restaurante?.imagem_url ?? currentState.restaurantImage,
-        });
-        setState(null);
-        localStorage.removeItem(STORAGE_KEY);
-        return true;
-      }
-    } catch { /* ignore */ }
-    return false;
-  }, []);
-
-  // Polling — atualiza posição a cada 30s
-  const refreshPosicao = useCallback(async (current: QueueState) => {
-    const filaId  = current.entry.fila?.restaurante_id;
-    const horario = current.entry.fila?.horario_reserva;
-    if (!filaId || !horario) return;
-    try {
-      const updated = await queueService.consultarPosicao({
-        restaurante_id: filaId,
-        horario_reserva: horario,
-      });
-      setState(prev => prev ? { ...prev, entry: updated } : prev);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, entry: updated }));
-    } catch {
-      // 404 = saiu da fila — verifica se foi promovido para reserva
-      const promovido = await verificarPromocao(current);
-      if (!promovido) {
-        setState(null);
-        localStorage.removeItem(STORAGE_KEY);
-        setRemovido(true);
-      }
-    }
-  }, [verificarPromocao]);
-
-  // O state é reescrito a cada atualização de posição, então os handlers leem a
-  // versão corrente por uma ref em vez de capturá-la no fechamento.
-  const stateRef = useRef(state);
-  useEffect(() => { stateRef.current = state; }, [state]);
-
-  // Tempo real, no lugar do polling de 30s: o canal da fila avisa que a
-  // composição mudou, e o canal pessoal avisa a promoção para mesa.
-  const filaId    = state?.entry.fila?.id ?? state?.entry.fila_id;
-  const clienteId = state?.entry.cliente_id;
-
-  const aoMudarFila = useCallback(() => {
-    const s = stateRef.current;
-    if (s) refreshPosicao(s);
-  }, [refreshPosicao]);
-
+  // Promoção para mesa: o evento traz o id da reserva criada.
   useRealtime(
-    filaId ? `fila.${filaId}` : undefined,
-    { 'posicao.atualizada': aoMudarFila },
-    aoMudarFila
-  );
-
-  useRealtime(
-    clienteId ? `cliente.${clienteId}` : undefined,
+    user?.id ? `cliente.${user.id}` : undefined,
     {
-      'cliente.promovido': () => {
-        const s = stateRef.current;
-        if (s) verificarPromocao(s);
+      'cliente.promovido': async dados => {
+        const { reservaId } = dados as { reservaId: string };
+        const reserva = await reservationsService.getReservationById(reservaId);
+        const origem  = state ?? saida?.fila;
+        setPromovidoPorEvento({
+          reserva:         reserva ?? undefined,
+          restaurantName:  reserva?.mesa?.restaurante?.name ?? origem?.restaurantName ?? 'Restaurante',
+          restaurantImage: reserva?.mesa?.restaurante?.imagem_url ?? origem?.restaurantImage,
+        });
+        limpar();
       },
     }
   );
+
+  const promoted: PromotedInfo | null = promovidoPorEvento ?? (saida?.status === 'atendido'
+    ? { restaurantName: saida.fila.restaurantName, restaurantImage: saida.fila.restaurantImage }
+    : null);
+
+  // 'desistiu' é o próprio cliente saindo (em outra aba, por ex.): não é remoção.
+  const removido = saida !== null && saida.status !== 'atendido' && saida.status !== 'desistiu';
 
   const handleCancel = async () => {
     if (!state) return;
@@ -135,8 +72,7 @@ const Queue: React.FC = () => {
     try {
       await queueService.cancelQueue(state.entry.id);
       toast.success('Você saiu da fila.');
-      setState(null);
-      localStorage.removeItem(STORAGE_KEY);
+      limpar();
       setCancelOpen(false);
     } catch {
       toast.error('Erro ao sair da fila. Tente novamente.');
@@ -156,7 +92,7 @@ const Queue: React.FC = () => {
   // ── Tela: promovido da fila para reserva confirmada ──────────────────────
   if (promoted) {
     const { reserva, restaurantName, restaurantImage } = promoted;
-    const mesaNumero = reserva.mesa?.numero;
+    const mesaNumero = reserva?.mesa?.numero;
 
     return (
       <div className="max-w-lg mx-auto space-y-6 animate-fade-in">
@@ -200,7 +136,7 @@ const Queue: React.FC = () => {
           </div>
 
           {/* Horário */}
-          {reserva.horario_reserva && (
+          {reserva?.horario_reserva && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <CalendarCheck className="h-4 w-4 shrink-0 text-primary" />
               {formatBRT(reserva.horario_reserva, {
@@ -327,7 +263,7 @@ const Queue: React.FC = () => {
         </div>
 
         <p className="text-xs text-center text-muted-foreground">
-          Sua posição é atualizada automaticamente a cada 30 segundos.
+          Sua posição é atualizada automaticamente.
         </p>
 
         <Button variant="outline" className="w-full min-h-[44px]" onClick={() => setCancelOpen(true)}>
