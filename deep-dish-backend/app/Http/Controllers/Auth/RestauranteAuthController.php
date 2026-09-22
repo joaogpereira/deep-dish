@@ -170,23 +170,27 @@ class RestauranteAuthController extends Controller
         }
 
         $restaurante = auth('restaurante')->user();
+        $caminhoAntigo = $restaurante->getRawOriginal('imagem_url');
 
-        // remove imagem antiga se existir (imagem_url pode ser path relativo ou URL legada)
-        if ($restaurante->imagem_url) {
-            $oldPath = str_starts_with($restaurante->imagem_url, 'http')
-                ? str_replace(asset('storage').'/', '', $restaurante->imagem_url)
-                : $restaurante->imagem_url;
-            Storage::disk('public')->delete($oldPath);
+        // Disco padrão (FILESYSTEM_DISK): 'public' local, 'supabase' em produção.
+        // O banco guarda só o caminho relativo; a URL sai do accessor do model.
+        $caminho = $request->file('imagem')->store('restaurantes');
+
+        if (! $caminho) {
+            return response()->json(['error' => 'Não foi possível salvar a imagem'], 500);
         }
 
-        // salva path relativo — URL é reconstruída no frontend
-        $path = $request->file('imagem')->store('restaurantes', 'public');
+        $restaurante->update(['imagem_url' => $caminho]);
 
-        $restaurante->update(['imagem_url' => $path]);
+        // A antiga só sai depois que a nova foi salva — se o upload falhar, o
+        // restaurante não fica sem imagem. URL legada (http...) não é arquivo nosso.
+        if ($caminhoAntigo && ! str_starts_with($caminhoAntigo, 'http')) {
+            Storage::delete($caminhoAntigo);
+        }
 
         return response()->json([
             'message' => 'Imagem atualizada com sucesso!',
-            'imagem_url' => $path,
+            'imagem_url' => $restaurante->imagem_url,
         ]);
     }
 
