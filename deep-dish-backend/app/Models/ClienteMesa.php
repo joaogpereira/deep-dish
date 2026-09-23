@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -13,6 +15,12 @@ class ClienteMesa extends Model
     use HasFactory;
     use HasUuids;
     use SoftDeletes;
+
+    /** Status que seguram a mesa no horário da reserva. */
+    public const STATUS_ATIVOS = ['confirmada', 'em_andamento'];
+
+    /** Duração fixa da reserva (MVP). */
+    public const DURACAO_RESERVA_MINUTOS = 60;
 
     protected $table = 'clientemesa';
 
@@ -61,6 +69,25 @@ class ClienteMesa extends Model
                 ? (int) abs($this->horario_checkin->diffInSeconds($agora))
                 : null,
         ])->save();
+    }
+
+    /**
+     * Reservas ativas que ocupam a mesa em algum instante da janela pedida.
+     *
+     * Duas reservas se sobrepõem quando uma começa antes de a outra terminar,
+     * dos dois lados. Como só existe o início no banco, o fim sai do início mais
+     * a duração fixa — daí o interval no SQL (sintaxe Postgres).
+     *
+     * Era a mesma consulta escrita em três lugares (ReservaController::store,
+     * duas vezes, e MesaController::disponiveis); agora mora aqui.
+     */
+    public function scopeAtivasSobrepondo(Builder $query, CarbonInterface $inicio, CarbonInterface $fim): Builder
+    {
+        return $query
+            ->whereIn('status', self::STATUS_ATIVOS)
+            ->where('horario_reserva', '<', $fim)
+            // A duração é uma constante de classe (int), não entrada de usuário.
+            ->whereRaw("horario_reserva + interval '".self::DURACAO_RESERVA_MINUTOS." minutes' > ?", [$inicio]);
     }
 
     public function cliente(): BelongsTo

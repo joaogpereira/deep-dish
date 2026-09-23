@@ -53,17 +53,17 @@ class FilaServiceTest extends TestCase
 
     public function test_promocao_para_mesa_grava_status_saida_e_dados_da_saida(): void
     {
-        $restaurante = Restaurante::factory()->create();
+        $restaurante = Restaurante::factory()->comFilaAtiva()->create();
         $fila = Fila::factory()->for($restaurante)->create();
         $entrada = ClienteFila::factory()->for($fila)->create([
             'qntd_pessoas' => 2,
             'created_at' => now()->subMinutes(10),
         ]);
-        $mesa = Mesa::factory()->for($restaurante)->create(['capacidade' => 4]);
+        Mesa::factory()->for($restaurante)->create(['capacidade' => 4]);
 
-        $clienteMesa = app(FilaService::class)->promoverProximoParaMesa($restaurante->id, $mesa);
+        $clienteMesa = app(FilaService::class)->processarPromocoes($restaurante->id)->first();
 
-        $this->assertNotNull($clienteMesa, 'promoverProximoParaMesa() retornou null — checar capacidade/qntd_pessoas.');
+        $this->assertNotNull($clienteMesa, 'processarPromocoes() não chamou ninguém — checar capacidade/qntd_pessoas.');
 
         $saida = ClienteFila::withTrashed()->findOrFail($entrada->id);
 
@@ -138,7 +138,8 @@ class FilaServiceTest extends TestCase
 
     public function test_cliente_que_saiu_pode_reentrar_na_fila(): void
     {
-        $restaurante = Restaurante::factory()->create();
+        // comFilaAtiva: entrar na fila exige a flag ligada (#168).
+        $restaurante = Restaurante::factory()->comFilaAtiva()->create();
         $cliente = Cliente::factory()->create();
         $horario = now()->addHour()->utc()->format('Y-m-d H:i:s');
 

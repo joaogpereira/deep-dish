@@ -185,7 +185,8 @@ class FilaEstimativaEndpointTest extends TestCase
 
     private function restaurante(): Restaurante
     {
-        return Restaurante::factory()->create([
+        // comFilaAtiva: entrar na fila exige a flag ligada (#168).
+        return Restaurante::factory()->comFilaAtiva()->create([
             'horario_abertura' => '00:00',
             'horario_fechamento' => '23:59',
         ]);

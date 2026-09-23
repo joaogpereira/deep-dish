@@ -15,7 +15,7 @@ use Tests\TestCase;
 /**
  * fila:expirar-chamados (#164) — detecção automática de desistência na fila.
  *
- * "Chamado" é a promoção para a mesa: FilaService::promoverProximoParaMesa cria
+ * "Chamado" é a promoção para a mesa: FilaService::processarPromocoes cria
  * a reserva, grava 'chamado_em' e fecha a entrada como 'atendido'. Esse
  * atendido é provisório até o check-in; sem check-in dentro da tolerância, o
  * command o reclassifica como 'expirado' e passa a mesa para o próximo.
@@ -37,7 +37,8 @@ class ExpirarChamadosTest extends TestCase
     {
         parent::setUp();
 
-        $this->restaurante = Restaurante::factory()->create();
+        // comFilaAtiva: sem a flag, o ponto único de promoção não chama ninguém.
+        $this->restaurante = Restaurante::factory()->comFilaAtiva()->create();
         $this->mesa = Mesa::factory()->for($this->restaurante)->create(['capacidade' => 4]);
         $this->fila = Fila::factory()->for($this->restaurante)->create();
     }
@@ -204,10 +205,10 @@ class ExpirarChamadosTest extends TestCase
         return ClienteFila::factory()->for($this->fila)->entrouHa($entrouHa)->create(['qntd_pessoas' => 2]);
     }
 
-    /** A chamada de produção: a mesa livre vai para o primeiro da fila. */
+    /** A chamada de produção: a mesa disponível vai para o primeiro da fila. */
     private function chamarProximo(): ClienteMesa
     {
-        $reserva = app(FilaService::class)->promoverProximoParaMesa($this->restaurante->id, $this->mesa);
+        $reserva = app(FilaService::class)->processarPromocoes($this->restaurante->id)->first();
 
         $this->assertNotNull($reserva, 'A promoção não chamou ninguém — checar capacidade/qntd_pessoas.');
 
