@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Events\OperacaoAtualizada;
 use App\Models\ClienteMesa;
 use App\Models\Mesa;
+use App\Services\FilaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -36,10 +37,8 @@ class MesaController extends Controller
             $fim = $inicio->copy()->addMinutes(ReservaController::DURACAO_RESERVA_MINUTOS);
 
             // Exclui apenas mesas com reserva ativa que se sobreponha à janela pedida.
-            // Mesma lógica de ReservaController::store (sintaxe Postgres).
-            $conflitantes = ClienteMesa::whereIn('status', ReservaController::STATUS_ATIVOS)
-                ->where('horario_reserva', '<', $fim)
-                ->whereRaw("horario_reserva + interval '1 hour' > ?", [$inicio])
+            $conflitantes = ClienteMesa::query()
+                ->ativasSobrepondo($inicio, $fim)
                 ->pluck('mesa_id');
 
             $query->whereNotIn('id', $conflitantes);
@@ -95,6 +94,9 @@ class MesaController extends Controller
             ]);
 
             OperacaoAtualizada::dispatch((string) $restauranteId);
+
+            // Mesa nova é lugar novo: quem está esperando pode caber nela.
+            app(FilaService::class)->processarPromocoes((string) $restauranteId);
 
             return response()->json([
                 'message' => 'Mesa criada com sucesso!',
@@ -156,6 +158,12 @@ class MesaController extends Controller
             $mesa->update($validator->validated());
 
             OperacaoAtualizada::dispatch((string) $restauranteId);
+
+            // Desbloquear devolve a mesa ao salão, e aumentar a capacidade pode
+            // fazer caber quem antes não cabia.
+            if ($request->hasAny(['status', 'capacidade'])) {
+                app(FilaService::class)->processarPromocoes((string) $restauranteId);
+            }
 
             return response()->json([
                 'message' => 'Mesa atualizada!',

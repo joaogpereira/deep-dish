@@ -11,8 +11,10 @@ use App\Models\ClienteFila;
 use App\Models\ClienteMesa;
 use App\Models\Fila;
 use App\Models\Mesa;
+use App\Models\Restaurante;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -25,6 +27,14 @@ class FilaService
         int $qntdPessoas
     ): ClienteFila {
         return DB::transaction(function () use ($clienteId, $restauranteId, $horarioReserva, $qntdPessoas) {
+            // A flag existe desde sempre no cadastro do restaurante, mas nada a
+            // consultava: dava para entrar na fila de quem a mantém desligada.
+            $filaAtiva = Restaurante::query()->whereKey($restauranteId)->value('fila_ativa');
+
+            if (! $filaAtiva) {
+                throw new InvalidArgumentException('A fila deste restaurante está fechada no momento.');
+            }
+
             // BUG CORRIGIDO: sem o cliente_id, o primeiro da fila bloqueava todos os outros.
             $jaEmFila = ClienteFila::ativas()
                 ->where('cliente_id', $clienteId)
@@ -155,63 +165,159 @@ class FilaService
     }
 
     /**
-     * Promove o próximo da fila para uma mesa que acabou de ser liberada.
-     * Busca a entrada mais antiga entre todas as filas abertas do restaurante.
+     * ÚNICO ponto de promoção da fila: varre as mesas disponíveis do restaurante
+     * e chama quem couber. Todo caminho que libera lugar entra por aqui —
+     * liberar, cancelar, expirar reserva ou chamada, desbloquear e criar mesa.
+     *
+     * Antes só o "liberar" do painel chamava alguém: cancelamento e expiração
+     * devolviam a mesa e a fila não andava.
+     *
+     * A transação trava a linha do restaurante. Duas promoções simultâneas no
+     * mesmo salão viram fila, em vez de darem a mesma mesa a dois clientes —
+     * o status da mesa não serve de trava, porque ela só sai de 'livre' no
+     * check-in, bem depois da chamada.
+     *
+     * @return Collection<int, ClienteMesa> as reservas criadas
      */
-    public function promoverProximoParaMesa(string $restauranteId, Mesa $mesa): ?ClienteMesa
+    public function processarPromocoes(string $restauranteId): Collection
     {
-        return DB::transaction(function () use ($restauranteId, $mesa) {
-            $proximo = ClienteFila::query()
-                ->ativas()
-                ->whereHas('fila', fn ($q) => $q
-                    ->where('restaurante_id', $restauranteId)
-                    ->where('status', Fila::STATUS_ABERTA)
-                )
-                // OPÇÃO B — "chama o próximo que caiba na mesa":
-                // ->where('qntd_pessoas', '<=', $mesa->capacidade)
-                ->orderBy('created_at')
-                ->orderBy('id')
-                ->lockForUpdate()
-                ->first();
+        return DB::transaction(function () use ($restauranteId) {
+            $restaurante = Restaurante::query()->whereKey($restauranteId)->lockForUpdate()->first();
+
+            if (! $restaurante?->fila_ativa) {
+                return collect();
+            }
+
+            $mesas = $this->mesasDisponiveis($restauranteId);
+
+            if ($mesas->isEmpty()) {
+                return collect();
+            }
+
+            $promovidos = collect();
+            $filasTocadas = [];
+
+            foreach ($this->escolherAlocacoes($restauranteId, $mesas) as [$entrada, $mesa]) {
+                $promovidos->push($this->promover($entrada, $mesa));
+                $filasTocadas[(string) $entrada->fila_id] = true;
+            }
+
+            if ($promovidos->isNotEmpty()) {
+                FilaAtualizada::dispatch($restauranteId);
+                // Nasceram reservas: as telas de Mesas e Reservas do painel mudaram.
+                OperacaoAtualizada::dispatch($restauranteId);
+
+                foreach (array_keys($filasTocadas) as $filaId) {
+                    PosicaoFilaAtualizada::dispatch($filaId);
+                }
+            }
+
+            return $promovidos;
+        });
+    }
+
+    /**
+     * Mesas que podem receber alguém agora.
+     *
+     * 'livre' não basta: a mesa continua 'livre' entre a chamada e o check-in, e
+     * pode ter reserva marcada para daqui a pouco. Por isso também exige nenhuma
+     * reserva ativa sobrepondo a janela [agora, agora + duração].
+     *
+     * @return Collection<int, Mesa>
+     */
+    private function mesasDisponiveis(string $restauranteId): Collection
+    {
+        $agora = now();
+        $fim = $agora->copy()->addMinutes(ClienteMesa::DURACAO_RESERVA_MINUTOS);
+
+        return Mesa::query()
+            ->where('restaurante_id', $restauranteId)
+            ->where('status', 'livre')
+            ->whereDoesntHave('clienteMesas', fn ($q) => $q->ativasSobrepondo($agora, $fim))
+            ->orderBy('capacidade')
+            ->orderBy('numero')
+            ->lockForUpdate()
+            ->get();
+    }
+
+    /**
+     * Quem senta em qual mesa. Hoje mantém a regra antiga — FIFO estrito, o
+     * primeiro da fila cabe ou a mesa fica vazia — só que aplicada a todas as
+     * mesas disponíveis de uma vez, e não a uma só.
+     *
+     * É este método que a #169 troca pelo best-fit, acabando com o bloqueio que
+     * um grupo grande na frente causa hoje.
+     *
+     * @param  Collection<int, Mesa>  $mesas
+     * @return list<array{0: ClienteFila, 1: Mesa}>
+     */
+    private function escolherAlocacoes(string $restauranteId, Collection $mesas): array
+    {
+        $entradas = $this->entradasAguardando($restauranteId);
+        $alocacoes = [];
+
+        foreach ($mesas as $mesa) {
+            $proximo = $entradas->first();
 
             if (! $proximo) {
-                return null;
+                break;
             }
 
-            // OPÇÃO A (atual) — respeita FIFO estrito: se o primeiro não cabe, ninguém é chamado.
-            // Remova este bloco se adotar a OPÇÃO B acima.
             if ($mesa->capacidade < $proximo->qntd_pessoas) {
-                return null;
+                continue;
             }
 
-            $clienteMesa = ClienteMesa::create([
-                'cliente_id' => $proximo->cliente_id,
-                'mesa_id' => $mesa->id,
-                'horario_reserva' => now()->utc(),
-                'party_size' => $proximo->qntd_pessoas,
-                'status' => 'confirmada',
-            ]);
+            $alocacoes[] = [$proximo, $mesa];
+            $entradas->shift();
+        }
 
-            $fila = $proximo->fila;
+        return $alocacoes;
+    }
 
-            $proximo->registrarChamada($clienteMesa);
+    /**
+     * Fila do restaurante, da entrada mais antiga para a mais nova, travada para
+     * esta transação. Junta todas as filas abertas: a ordem é por chegada, não
+     * por horário de reserva.
+     *
+     * @return Collection<int, ClienteFila>
+     */
+    private function entradasAguardando(string $restauranteId): Collection
+    {
+        return ClienteFila::query()
+            ->ativas()
+            ->whereHas('fila', fn ($q) => $q
+                ->where('restaurante_id', $restauranteId)
+                ->where('status', Fila::STATUS_ABERTA)
+            )
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+    }
 
-            $this->encerrarFilaSeVazia($fila);
+    /** Tira a entrada da fila e cria a reserva da chamada. */
+    private function promover(ClienteFila $entrada, Mesa $mesa): ClienteMesa
+    {
+        $clienteMesa = ClienteMesa::create([
+            'cliente_id' => $entrada->cliente_id,
+            'mesa_id' => $mesa->id,
+            'horario_reserva' => now()->utc(),
+            'party_size' => $entrada->qntd_pessoas,
+            'status' => 'confirmada',
+        ]);
 
-            FilaAtualizada::dispatch($restauranteId);
-            PosicaoFilaAtualizada::dispatch((string) $fila->id);
-            // Nasceu uma reserva: as telas de Mesas e Reservas do painel mudaram.
-            OperacaoAtualizada::dispatch($restauranteId);
+        $entrada->registrarChamada($clienteMesa);
 
-            // Aviso pessoal: quem foi promovido nao descobre pelo canal da fila,
-            // que so diz que a composicao mudou.
-            ClientePromovido::dispatch(
-                (string) $proximo->cliente_id,
-                (string) $clienteMesa->id,
-            );
+        $this->encerrarFilaSeVazia($entrada->fila);
 
-            return $clienteMesa;
-        });
+        // Aviso pessoal: quem foi promovido nao descobre pelo canal da fila,
+        // que so diz que a composicao mudou.
+        ClientePromovido::dispatch(
+            (string) $entrada->cliente_id,
+            (string) $clienteMesa->id,
+        );
+
+        return $clienteMesa;
     }
 
     /**
@@ -245,9 +351,10 @@ class FilaService
             ->pluck('id');
 
         $expiradas = 0;
+        $restaurantesAfetados = [];
 
         foreach ($candidatas as $id) {
-            $expiradas += (int) DB::transaction(function () use ($id) {
+            $expiradas += (int) DB::transaction(function () use ($id, &$restaurantesAfetados) {
                 $entrada = ClienteFila::withTrashed()->lockForUpdate()->find($id);
                 $reserva = ClienteMesa::with('mesa')->lockForUpdate()->find($entrada?->clientemesa_id);
 
@@ -261,21 +368,23 @@ class FilaService
                 $entrada->registrarNaoComparecimento();
 
                 // A reserva da chamada não mexe no status da mesa (só o check-in
-                // mexe), então não há o que desfazer. A mesa só vai para o
-                // próximo se continuar livre — o restaurante pode tê-la
-                // bloqueado nesse meio-tempo.
+                // mexe), então não há o que desfazer. A mesa volta para a fila
+                // depois do loop, pelo ponto único — que confere sozinho se ela
+                // continua disponível (o restaurante pode tê-la bloqueado).
                 $mesa = $reserva->mesa;
-                if ($mesa && $mesa->status === 'livre') {
-                    $this->promoverProximoParaMesa((string) $mesa->restaurante_id, $mesa);
-                }
 
                 ReservaAtualizada::dispatch((string) $reserva->cliente_id);
                 if ($mesa) {
+                    $restaurantesAfetados[(string) $mesa->restaurante_id] = true;
                     OperacaoAtualizada::dispatch((string) $mesa->restaurante_id);
                 }
 
                 return true;
             });
+        }
+
+        foreach (array_keys($restaurantesAfetados) as $restauranteId) {
+            $this->processarPromocoes($restauranteId);
         }
 
         return $expiradas;

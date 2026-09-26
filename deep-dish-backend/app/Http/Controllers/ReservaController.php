@@ -20,8 +20,11 @@ class ReservaController extends Controller
     /**
      * Duração padrão de uma reserva (em minutos).
      * Por enquanto fixa em 1 hora — futura feature: configurável por restaurante.
+     *
+     * Mora no model, junto do scope que a usa para calcular sobreposição; aqui
+     * fica o apelido, porque meio projeto já referencia ReservaController::.
      */
-    public const DURACAO_RESERVA_MINUTOS = 60;
+    public const DURACAO_RESERVA_MINUTOS = ClienteMesa::DURACAO_RESERVA_MINUTOS;
 
     /**
      * Tolerância para no-show: após esse tempo sem check-in,
@@ -30,7 +33,7 @@ class ReservaController extends Controller
     private const TOLERANCIA_NO_SHOW_MINUTOS = 60;
 
     /** Status considerados "ativos" (bloqueia mesa no horário). */
-    public const STATUS_ATIVOS = ['confirmada', 'em_andamento'];
+    public const STATUS_ATIVOS = ClienteMesa::STATUS_ATIVOS;
 
     /**
      * Minutos de folga após o fechamento do restaurante antes de expirar sessões.
@@ -124,6 +127,10 @@ class ReservaController extends Controller
 
         foreach (array_keys($restaurantesAfetados) as $restauranteId) {
             OperacaoAtualizada::dispatch($restauranteId);
+
+            // Fora da transação de propósito: cada restaurante promove na sua,
+            // travando só a própria linha.
+            app(FilaService::class)->processarPromocoes($restauranteId);
         }
 
         return $vencidas->count();
@@ -193,9 +200,7 @@ class ReservaController extends Controller
                 $fimReserva = $horarioReserva->copy()->addMinutes(self::DURACAO_RESERVA_MINUTOS);
 
                 $conflito = ClienteMesa::where('mesa_id', $mesaId)
-                    ->whereIn('status', self::STATUS_ATIVOS)
-                    ->where('horario_reserva', '<', $fimReserva)
-                    ->whereRaw("horario_reserva + interval '1 hour' > ?", [$horarioReserva])
+                    ->ativasSobrepondo($horarioReserva, $fimReserva)
                     ->exists();
 
                 if ($conflito) {
@@ -207,9 +212,7 @@ class ReservaController extends Controller
                 // Cliente já tem reserva ativa nesse restaurante no mesmo horário?
                 $duplicada = ClienteMesa::where('cliente_id', $clienteId)
                     ->whereHas('mesa', fn ($q) => $q->where('restaurante_id', $mesa->restaurante_id))
-                    ->whereIn('status', self::STATUS_ATIVOS)
-                    ->where('horario_reserva', '<', $fimReserva)
-                    ->whereRaw("horario_reserva + interval '1 hour' > ?", [$horarioReserva])
+                    ->ativasSobrepondo($horarioReserva, $fimReserva)
                     ->exists();
 
                 if ($duplicada) {
@@ -315,6 +318,10 @@ class ReservaController extends Controller
 
         if ($mesa) {
             OperacaoAtualizada::dispatch((string) $mesa->restaurante_id);
+
+            // Cancelar libera lugar: com check-in, a mesa em si; sem ele, a
+            // janela de horário que a reserva segurava. Nos dois casos a fila anda.
+            app(FilaService::class)->processarPromocoes((string) $mesa->restaurante_id);
         }
         ReservaAtualizada::dispatch((string) $clienteId);
 
@@ -413,8 +420,7 @@ class ReservaController extends Controller
         if ($mesa) {
             $mesa->update(['status' => 'livre']);
 
-            // Promove o próximo da fila para esta mesa, se houver
-            app(FilaService::class)->promoverProximoParaMesa($mesa->restaurante_id, $mesa->fresh());
+            app(FilaService::class)->processarPromocoes((string) $mesa->restaurante_id);
         }
 
         OperacaoAtualizada::dispatch((string) $restauranteId);

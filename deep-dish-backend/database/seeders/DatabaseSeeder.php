@@ -54,7 +54,17 @@ class DatabaseSeeder extends Seeder
             'password' => self::SENHA,
         ]);
 
-        Mesa::factory()->count(6)->for($restaurante)->create();
+        // Casa cheia, que é o que justifica ter fila. Antes as mesas nasciam
+        // livres: com o ponto único de promoção (#168), o 'fila:promover'
+        // esvaziaria a fila deste cenário no primeiro minuto.
+        $mesas = Mesa::factory()->count(6)->for($restaurante)->create(['status' => 'ocupada']);
+
+        foreach ($mesas as $mesa) {
+            ClienteMesa::factory()->for($mesa, 'mesa')->emAndamento()->create([
+                'horario_reserva' => now()->utc()->subMinutes(45),
+            ]);
+        }
+
         Mesa::factory()->for($restaurante)->bloqueada()->create();
         Funcionario::factory()->count(3)->for($restaurante)->create();
 
