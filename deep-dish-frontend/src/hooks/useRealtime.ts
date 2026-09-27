@@ -3,8 +3,12 @@ import { getEcho } from '@/lib/echo';
 
 type Handlers = Record<string, () => void>;
 
+/** Intervalo do polling de reserva, o mesmo que as telas usavam antes do Reverb. */
+export const POLLING_FALLBACK_MS = 30_000;
+
 interface PusherLike {
   connection: {
+    state: string;
     bind: (evento: string, cb: () => void) => void;
     unbind: (evento: string, cb: () => void) => void;
   };
@@ -21,7 +25,11 @@ interface PusherLike {
  *    provocar.
  * 2. Depois de uma queda de conexao, nada e reenviado. Por isso o `connected`
  *    dispara `aoReconectar`, para a tela buscar o que perdeu enquanto esteve fora.
+ * 3. Com o Reverb fora do ar, a tela volta ao polling de antes: a cada 30s, se o
+ *    socket nao estiver conectado, `aoReconectar` e chamado. Sem `aoReconectar`
+ *    nao ha fallback — quem precisa dele deve passar a funcao de recarga.
  *
+
  * @param canal Nome do canal sem o prefixo 'private-' (ex.: `restaurante.${id}`).
  *              Passe undefined enquanto o id ainda nao existir.
  * @param handlers Mapa de evento -> callback. A chave e o nome do broadcastAs()
@@ -46,7 +54,17 @@ export function useRealtime(
   useEffect(() => {
     if (!canal) return;
 
-    const echo = getEcho();
+    const resync = () => reconectarRef.current?.();
+
+    let echo: ReturnType<typeof getEcho>;
+    try {
+      echo = getEcho();
+    } catch {
+      // Echo nem sobe (ex.: VITE_REVERB_APP_KEY vazia): so polling, sem derrubar a tela.
+      const polling = setInterval(resync, POLLING_FALLBACK_MS);
+      return () => clearInterval(polling);
+    }
+
     const pusher = (echo.connector as { pusher: PusherLike }).pusher;
     const assinatura = echo.private(canal);
 
@@ -54,10 +72,14 @@ export function useRealtime(
       assinatura.listen(`.${evento}`, () => handlersRef.current[evento]?.());
     });
 
-    const resync = () => reconectarRef.current?.();
     pusher.connection.bind('connected', resync);
 
+    const polling = setInterval(() => {
+      if (pusher.connection.state !== 'connected') resync();
+    }, POLLING_FALLBACK_MS);
+
     return () => {
+      clearInterval(polling);
       pusher.connection.unbind('connected', resync);
       echo.leave(canal);
     };
