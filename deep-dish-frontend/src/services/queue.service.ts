@@ -3,9 +3,12 @@ import { httpClient } from './httpClient';
 
 export const queueService = {
   // ─── Cliente ────────────────────────────────────────────
+  // Sem `horario_reserva` é a fila de agora, e o servidor define a janela —
+  // é assim que a tela do cliente entra na fila. O horário explícito continua
+  // aceito para fila de um horário futuro.
   async joinQueue(payload: {
     restaurante_id: string;
-    horario_reserva: string;
+    horario_reserva?: string;
     qntd_pessoas: number;
   }): Promise<{ message: string; data: ClienteFilaEntry }> {
     return httpClient.post('/fila', payload);
@@ -26,12 +29,12 @@ export const queueService = {
   // Estimativa de espera "se eu entrasse agora" — usada antes de entrar na fila.
   async consultarEstimativa(params: {
     restaurante_id: string;
-    horario_reserva: string;
+    horario_reserva?: string;
     qntd_pessoas: number;
   }): Promise<EstimativaEspera> {
     const qs = new URLSearchParams({
       restaurante_id: params.restaurante_id,
-      horario_reserva: params.horario_reserva,
+      ...(params.horario_reserva ? { horario_reserva: params.horario_reserva } : {}),
       qntd_pessoas: String(params.qntd_pessoas),
     }).toString();
     return httpClient.get(`/fila/estimativa?${qs}`);

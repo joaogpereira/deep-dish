@@ -116,8 +116,9 @@ const RestaurantDetail: React.FC = () => {
   const horarioReserva = selectedDate && selectedTime ? toISOBRT(selectedDate, selectedTime) : '';
 
   // Estimativa de espera "se eu entrasse agora" — antes de decidir entrar na fila.
+  // Sem horário: a fila é sempre a de agora, e é o servidor que define a janela.
   useEffect(() => {
-    if (!id || !restaurant?.fila_ativa || !horarioReserva || horarioForaDoFuncionamento || horarioNoPassado) {
+    if (!id || !restaurant?.fila_ativa) {
       setEstimativa(null);
       return;
     }
@@ -125,22 +126,20 @@ const RestaurantDetail: React.FC = () => {
 
     queueService.consultarEstimativa({
       restaurante_id: id,
-      horario_reserva: horarioReserva,
       qntd_pessoas: partySizeNum,
     })
       .then(data => { if (!cancelled) setEstimativa(data); })
       .catch(() => { if (!cancelled) setEstimativa(null); });
 
     return () => { cancelled = true; };
-  }, [id, restaurant?.fila_ativa, horarioReserva, partySizeNum, horarioForaDoFuncionamento, horarioNoPassado]);
+  }, [id, restaurant?.fila_ativa, partySizeNum]);
 
   const handleQueue = async () => {
-    if (!id || !horarioReserva) return;
+    if (!id) return;
     setJoiningQueue(true);
     try {
       const result = await queueService.joinQueue({
         restaurante_id: id,
-        horario_reserva: horarioReserva,
         qntd_pessoas: partySizeNum,
       });
       navigate('/app/queue', {
@@ -148,7 +147,8 @@ const RestaurantDetail: React.FC = () => {
           entry:           result.data,
           restaurantName:  restaurant?.name,
           restaurantImage: restaurant?.imagem_url,
-          horarioReserva,
+          // A janela vem do servidor: é ela que identifica a fila nas consultas.
+          horarioReserva:  result.data.fila?.horario_reserva ?? '',
           clienteId:       user?.id,
         },
       });
@@ -448,15 +448,8 @@ const RestaurantDetail: React.FC = () => {
                     Ver posição
                   </button>
                 </p>
-              ) : !horarioReserva ? (
-                <p className="text-xs text-muted-foreground italic">
-                  Selecione data e horário para entrar na fila.
-                </p>
-              ) : horarioNoPassado || horarioForaDoFuncionamento ? (
-                <p className="text-xs text-muted-foreground italic">
-                  Selecione um horário válido para entrar na fila.
-                </p>
-              ) : mesas.length > 0 && !loadingMesas ? (
+              ) : restaurant.reservations_enabled && mesas.length > 0 && !loadingMesas ? (
+                // Só faz sentido mandar reservar quando a reserva existe nesta tela.
                 <p className="text-xs text-muted-foreground italic">
                   Há mesas disponíveis — faça uma reserva acima.
                 </p>

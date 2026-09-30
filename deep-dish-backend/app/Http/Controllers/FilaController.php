@@ -24,11 +24,15 @@ class FilaController extends Controller
     {
         $validated = $request->validate([
             'restaurante_id' => ['required', 'string', 'uuid', 'exists:restaurante,id'],
-            'horario_reserva' => ['required', 'date', 'after:now'],
+            // Opcional: sem horário, entra na fila de agora. A tela do cliente não
+            // pede horário para entrar na fila — quem escolhe data e hora é reserva.
+            'horario_reserva' => ['sometimes', 'date', 'after:now'],
             'qntd_pessoas' => ['required', 'integer', 'min:1'],
         ]);
 
-        $horarioReserva = Carbon::parse($validated['horario_reserva'])->utc();
+        $horarioReserva = isset($validated['horario_reserva'])
+            ? Carbon::parse($validated['horario_reserva'])->utc()
+            : Fila::janelaAtual();
         $horarioUTC = $horarioReserva->format('Y-m-d H:i:s');
 
         try {
@@ -185,11 +189,14 @@ class FilaController extends Controller
     {
         $validated = $request->validate([
             'restaurante_id' => ['required', 'string', 'uuid', 'exists:restaurante,id'],
-            'horario_reserva' => ['required', 'date'],
+            // Mesma regra do store: sem horário, é a estimativa da fila de agora.
+            'horario_reserva' => ['sometimes', 'date'],
             'qntd_pessoas' => ['required', 'integer', 'min:1'],
         ]);
 
-        $horarioReserva = Carbon::parse($validated['horario_reserva'])->utc();
+        $horarioReserva = isset($validated['horario_reserva'])
+            ? Carbon::parse($validated['horario_reserva'])->utc()
+            : Fila::janelaAtual();
         $horarioUTC = $horarioReserva->format('Y-m-d H:i:s');
 
         // Posição hipotética: quem entrasse agora ficaria depois de todo mundo já ativo.

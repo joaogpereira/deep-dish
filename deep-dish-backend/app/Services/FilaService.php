@@ -35,6 +35,27 @@ class FilaService
                 throw new InvalidArgumentException('A fila deste restaurante está fechada no momento.');
             }
 
+            // Mesa bloqueada está fora de operação e não vira 'livre' sozinha: se
+            // todas estiverem assim, a fila não teria como andar e a pessoa
+            // esperaria por uma mesa que não vai existir. 'ocupada' não entra na
+            // conta — mesa cheia é justamente o motivo de existir fila.
+            $capacidades = Mesa::query()
+                ->where('restaurante_id', $restauranteId)
+                ->where('status', '!=', 'bloqueada')
+                ->pluck('capacidade');
+
+            if ($capacidades->isEmpty()) {
+                throw new InvalidArgumentException('Este restaurante não está recebendo fila no momento.');
+            }
+
+            // Mesmo problema, outro ângulo: um grupo de 8 num salão cuja maior
+            // mesa é de 4 nunca seria chamado.
+            if ($capacidades->max() < $qntdPessoas) {
+                throw new InvalidArgumentException(
+                    'A maior mesa deste restaurante comporta '.$capacidades->max().' pessoas.'
+                );
+            }
+
             // BUG CORRIGIDO: sem o cliente_id, o primeiro da fila bloqueava todos os outros.
             $jaEmFila = ClienteFila::ativas()
                 ->where('cliente_id', $clienteId)
