@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Cliente;
 use App\Models\ClienteFila;
 use App\Models\Fila;
+use App\Models\Mesa;
 use App\Models\Restaurante;
 use App\Services\EstimativaEsperaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -186,10 +187,16 @@ class FilaEstimativaEndpointTest extends TestCase
     private function restaurante(): Restaurante
     {
         // comFilaAtiva: entrar na fila exige a flag ligada (#168).
-        return Restaurante::factory()->comFilaAtiva()->create([
+        $restaurante = Restaurante::factory()->comFilaAtiva()->create([
             'horario_abertura' => '00:00',
             'horario_fechamento' => '23:59',
         ]);
+
+        // Salão em operação: sem nenhuma mesa fora de bloqueio, a fila recusa
+        // entrada — ela não teria como andar. 'ocupada' é o cenário de fila.
+        Mesa::factory()->for($restaurante)->create(['capacidade' => 6, 'status' => 'ocupada']);
+
+        return $restaurante;
     }
 
     /** Horário futuro qualquer, aberto o dia inteiro no restaurante de teste. */

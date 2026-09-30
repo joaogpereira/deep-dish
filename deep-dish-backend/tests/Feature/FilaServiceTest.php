@@ -140,6 +140,8 @@ class FilaServiceTest extends TestCase
     {
         // comFilaAtiva: entrar na fila exige a flag ligada (#168).
         $restaurante = Restaurante::factory()->comFilaAtiva()->create();
+        // Salão em operação: fila sem nenhuma mesa fora de bloqueio é recusada.
+        Mesa::factory()->for($restaurante)->create(['capacidade' => 4, 'status' => 'ocupada']);
         $cliente = Cliente::factory()->create();
         $horario = now()->addHour()->utc()->format('Y-m-d H:i:s');
 
