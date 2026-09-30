@@ -33,7 +33,9 @@ class RestauranteAuthController extends Controller
             'estado' => 'required|string|size:2',
             'cep' => ['required', 'string', 'regex:/^\d{5}-?\d{3}$/'],
             'telefone' => 'nullable|string',
-            'imagem_url' => 'nullable|string',
+            // 'imagem_url' saiu daqui: aceitava string livre (inclusive um
+            // 'javascript:...') sem que o cadastro precise dela. A foto entra
+            // pelo POST /restaurante/me/imagem, que valida arquivo de imagem.
             'fila_ativa' => 'nullable|boolean',
             'password' => 'required|string|min:6',
         ]);

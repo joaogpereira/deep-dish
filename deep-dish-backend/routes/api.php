@@ -14,16 +14,19 @@ Route::get('/horarios', [App\Http\Controllers\HorariosController::class, 'show']
 Route::get('/restaurantes/{restaurante}/horarios', [App\Http\Controllers\HorariosController::class, 'show']);
 
 // Definindo as rotas publicas.
+// Portas de entrada: são as que um atacante martela. O login limita tentativa de
+// senha; o cadastro limita criação em massa de conta — que, de quebra, dispara um
+// e-mail de verificação por conta criada e queimaria a cota do SMTP.
 Route::prefix('cliente')->group(function () {
-    Route::post('/register', [App\Http\Controllers\Auth\ClienteAuthController::class,  'register']);
-    Route::post('/login', [App\Http\Controllers\Auth\ClienteAuthController::class,  'login']);
+    Route::post('/register', [App\Http\Controllers\Auth\ClienteAuthController::class,  'register'])->middleware('throttle:3,10');
+    Route::post('/login', [App\Http\Controllers\Auth\ClienteAuthController::class,  'login'])->middleware('throttle:5,1');
     Route::post('/forgot-password', [App\Http\Controllers\Auth\PasswordResetController::class, 'forgotPassword'])->defaults('tipo', 'cliente')->middleware('throttle:5,1');
     Route::post('/reset-password', [App\Http\Controllers\Auth\PasswordResetController::class, 'resetPassword'])->defaults('tipo', 'cliente');
 });
 
 Route::prefix('restaurante')->group(function () {
-    Route::post('/register', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'register']);
-    Route::post('/login', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'login']);
+    Route::post('/register', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'register'])->middleware('throttle:3,10');
+    Route::post('/login', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'login'])->middleware('throttle:5,1');
     Route::post('/forgot-password', [App\Http\Controllers\Auth\PasswordResetController::class,   'forgotPassword'])->defaults('tipo', 'restaurante')->middleware('throttle:5,1');
     Route::post('/reset-password', [App\Http\Controllers\Auth\PasswordResetController::class,   'resetPassword'])->defaults('tipo', 'restaurante');
 });

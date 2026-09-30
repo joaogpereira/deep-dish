@@ -28,6 +28,12 @@ return Application::configure(basePath: dirname(__DIR__))
         ],
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // No Laravel 11 o grupo 'api' não tem limite nenhum por padrão: sem isto,
+        // qualquer endpoint aceita requisições em rajada — inclusive o login, que
+        // ficava aberto a força bruta. Teto geral de 60 por minuto por IP
+        // (autenticado, por usuário); as rotas sensíveis apertam mais em api.php.
+        $middleware->throttleApi();
+
         $middleware->alias([
             'cliente.or.restaurante' => \App\Http\Middleware\ClienteOuRestaurante::class,
         ]);
