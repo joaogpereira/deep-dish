@@ -1,4 +1,5 @@
 import { toast } from 'sonner';
+import { isRotaDeAutenticacao } from '@/lib/rotas';
 import { getAuthHeaders } from './api';
 
 const BASE = import.meta.env.VITE_API_URL;
@@ -166,7 +167,11 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
   if (!res.ok) {
     if (res.status === 403 && (data as Record<string, unknown>)?.error === 'email_not_verified') {
-      if (!window.location.pathname.startsWith('/verify-email')) {
+      // Nas telas de autenticação a navegação é da pessoa, não nossa: quem tem
+      // um token não verificado guardado leva 403 em toda chamada, e mandar para
+      // /verify-email daqui a prendia lá — sem conseguir entrar com outra conta
+      // nem criar uma nova.
+      if (!isRotaDeAutenticacao(window.location.pathname)) {
         const tipo = localStorage.getItem('tipo_usuario') ?? 'cliente';
         window.location.href = `/verify-email?tipo=${tipo}`;
       }

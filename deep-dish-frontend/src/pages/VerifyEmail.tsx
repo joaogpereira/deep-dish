@@ -19,6 +19,20 @@ const VerifyEmail: React.FC = () => {
   const [checking, setChecking]   = useState(!verified && !error);
 
   const dashboardHref = tipo === 'restaurante' ? '/restaurant/dashboard' : '/app';
+  const loginHref = tipo === 'restaurante' ? '/restaurant/login' : '/login';
+
+  /**
+   * Descarta a sessão não verificada e leva para o login.
+   *
+   * É local de propósito: o token pendente não passa pelas rotas autenticadas
+   * (403 email_not_verified), então não há logout no servidor para chamar.
+   */
+  const usarOutraConta = () => {
+    localStorage.removeItem('jwt');
+    localStorage.removeItem('tipo_usuario');
+    localStorage.removeItem('user');
+    navigate(loginHref, { replace: true });
+  };
 
   useEffect(() => {
     if (verified || error) return;
@@ -131,6 +145,15 @@ const VerifyEmail: React.FC = () => {
             ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Reenviando...</>
             : resent ? 'E-mail reenviado!' : 'Reenviar e-mail'}
         </Button>
+
+        {/* Saída da tela: sem isto, quem cadastrou e quer usar outra conta fica preso aqui. */}
+        <button
+          type="button"
+          onClick={usarOutraConta}
+          className="w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          Entrar com outra conta
+        </button>
       </div>
     </div>
   );
