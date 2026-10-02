@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -221,12 +222,15 @@ const Login: React.FC = () => {
               Criar conta
             </Link>
           </p>
-          <p>
-            É restaurante?{' '}
-            <Link to="/restaurant/login" className="font-medium text-primary hover:text-primary/80 transition-colors">
-              Acesse aqui
-            </Link>
-          </p>
+          {/* O app nativo é só do cliente; o restaurante usa o painel web. */}
+          {!Capacitor.isNativePlatform() && (
+            <p>
+              É restaurante?{' '}
+              <Link to="/restaurant/login" className="font-medium text-primary hover:text-primary/80 transition-colors">
+                Acesse aqui
+              </Link>
+            </p>
+          )}
         </div>
       </motion.div>
     </div>

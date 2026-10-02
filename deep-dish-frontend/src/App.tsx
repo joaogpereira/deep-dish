@@ -3,15 +3,18 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "next-themes";
+import { Capacitor } from "@capacitor/core";
 
 import PublicLayout from "@/components/layouts/PublicLayout";
 import AppLayout from "@/components/layouts/AppLayout";
 import AdminLayout from "@/components/layouts/AdminLayout";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import GuestRoute from "@/components/GuestRoute";
+import BotaoVoltarAndroid from "@/components/BotaoVoltarAndroid";
+import BarrasDoSistemaNativo from "@/components/BarrasDoSistemaNativo";
 
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
@@ -47,11 +50,17 @@ const App = () => (
         <TooltipProvider>
           <Toaster />
           <Sonner />
+          <BarrasDoSistemaNativo />
         <BrowserRouter>
+          <BotaoVoltarAndroid />
           <Routes>
             {/* Public */}
             <Route element={<PublicLayout />}>
-              <Route path="/" element={<Landing />} />
+              {/* O app nativo é só do cliente: abre no login, não na landing. */}
+              <Route
+                path="/"
+                element={Capacitor.isNativePlatform() ? <Navigate to="/login" replace /> : <Landing />}
+              />
               <Route path="/login" element={<GuestRoute><Login /></GuestRoute>} />
               <Route path="/register" element={<GuestRoute><Register /></GuestRoute>} />
               <Route path="/restaurant/login" element={<GuestRoute><RestaurantLogin /></GuestRoute>} />
