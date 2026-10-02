@@ -313,6 +313,105 @@ class FilaServiceTest extends TestCase
     }
 
     /**
+     * Critério de aceite da #169: a alocação nova desperdiça menos que a greedy
+     * antiga no mesmo cenário.
+     *
+     * A greedy está reproduzida aqui como referência porque saiu do código — é
+     * a baseline da comparação, e sem ela o "melhorou" não tem número.
+     *
+     * Atenção ao que se compara: o TOTAL de lugares ociosos sobe (2 -> 3), e isso
+     * é consequência de sentar mais gente, não piora. O número honesto é o
+     * desperdício POR ALOCAÇÃO, que é o que a métrica do AnalyticsService expõe.
+     */
+    public function test_alocacao_nova_desperdica_menos_por_mesa_que_a_greedy_antiga(): void
+    {
+        $capacidades = [2, 6, 10];
+        $chegadas = [[8, 20], [2, 15], [5, 10]];
+
+        // ── baseline: o algoritmo antigo, no mesmo cenário ──
+        $antiga = $this->greedyAntiga(array_column($chegadas, 0), $capacidades);
+
+        $this->assertCount(1, $antiga, 'A greedy antiga deveria sentar só o primeiro da fila.');
+        $desperdicioAntigo = $this->desperdicioMedio($antiga);
+
+        // ── o algoritmo atual, pelo serviço de verdade ──
+        $restaurante = Restaurante::factory()->comFilaAtiva()->create();
+        $fila = Fila::factory()->for($restaurante)->create();
+
+        foreach ($capacidades as $capacidade) {
+            Mesa::factory()->for($restaurante)->comCapacidade($capacidade)->create();
+        }
+
+        foreach ($chegadas as [$pessoas, $ha]) {
+            ClienteFila::factory()->for($fila)->entrouHa($ha)->create(['qntd_pessoas' => $pessoas]);
+        }
+
+        $promovidos = app(FilaService::class)->processarPromocoes($restaurante->id);
+
+        $nova = $promovidos
+            ->map(fn ($reserva) => [(int) $reserva->party_size, (int) Mesa::findOrFail($reserva->mesa_id)->capacidade])
+            ->all();
+
+        $desperdicioNovo = $this->desperdicioMedio($nova);
+
+        // Senta mais gente...
+        $this->assertCount(3, $nova);
+        $this->assertGreaterThan(count($antiga), count($nova));
+
+        // ...e ainda assim encaixa melhor: 2,0 lugares ociosos por mesa contra 1,0.
+        $this->assertSame(2.0, $desperdicioAntigo);
+        $this->assertSame(1.0, $desperdicioNovo);
+        $this->assertLessThan($desperdicioAntigo, $desperdicioNovo);
+    }
+
+    /**
+     * A regra antiga, reproduzida: laço externo nas MESAS, sempre comparando com
+     * o primeiro da fila — quem não cabia parava tudo.
+     *
+     * @param  list<int>  $tamanhos  grupos na ordem de chegada
+     * @param  list<int>  $capacidades
+     * @return list<array{0: int, 1: int}>
+     */
+    private function greedyAntiga(array $tamanhos, array $capacidades): array
+    {
+        sort($capacidades);   // mesasDisponiveis() ordena por capacidade crescente
+        $alocacoes = [];
+
+        foreach ($capacidades as $capacidade) {
+            $proximo = $tamanhos[0] ?? null;
+
+            if ($proximo === null) {
+                break;
+            }
+
+            if ($capacidade < $proximo) {
+                continue;
+            }
+
+            $alocacoes[] = [$proximo, $capacidade];
+            array_shift($tamanhos);
+        }
+
+        return $alocacoes;
+    }
+
+    /**
+     * Lugares ociosos por mesa ocupada.
+     *
+     * @param  list<array{0: int, 1: int}>  $alocacoes  pares [pessoas, capacidade]
+     */
+    private function desperdicioMedio(array $alocacoes): float
+    {
+        if ($alocacoes === []) {
+            return 0.0;
+        }
+
+        $ociosos = array_sum(array_map(fn (array $par) => $par[1] - $par[0], $alocacoes));
+
+        return round($ociosos / count($alocacoes), 1);
+    }
+
+    /**
      * Capacidade da mesa que a entrada recebeu, ou null se ela não foi
      * promovida. Lê pelo retorno de processarPromocoes() — o contrato público —
      * em vez de reconstruir o vínculo pelo banco.
