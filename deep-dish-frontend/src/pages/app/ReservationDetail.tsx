@@ -97,7 +97,7 @@ const ReservationDetail: React.FC = () => {
     <div className="max-w-lg mx-auto space-y-6 animate-fade-in">
       <button
         onClick={() => navigate(-1)}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[36px]"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[44px]"
       >
         <ArrowLeft className="h-4 w-4" />
         Voltar

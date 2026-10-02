@@ -172,11 +172,11 @@ const Pagination = ({
   if (lastPage <= 1) return null;
   return (
     <div className="flex items-center justify-center gap-3 mt-3">
-      <Button size="sm" variant="outline" onClick={onPrev} disabled={page <= 1} className="h-8 w-8 p-0">
+      <Button size="sm" variant="outline" onClick={onPrev} disabled={page <= 1} className="h-10 w-10 p-0">
         <ChevronLeft className="h-4 w-4" />
       </Button>
       <span className="text-sm text-muted-foreground">{page} / {lastPage}</span>
-      <Button size="sm" variant="outline" onClick={onNext} disabled={page >= lastPage} className="h-8 w-8 p-0">
+      <Button size="sm" variant="outline" onClick={onNext} disabled={page >= lastPage} className="h-10 w-10 p-0">
         <ChevronRight className="h-4 w-4" />
       </Button>
     </div>
@@ -312,7 +312,7 @@ const AppHome: React.FC = () => {
       <div className="flex items-center justify-between">
         <h1 className="font-display text-2xl font-bold text-foreground">Suas reservas</h1>
         <Link to="/app/search">
-          <Button size="sm" className="min-h-[36px]">
+          <Button size="sm" className="min-h-[44px]">
             <Plus className="mr-1.5 h-4 w-4" /> Nova reserva
           </Button>
         </Link>

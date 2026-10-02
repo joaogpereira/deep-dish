@@ -4,6 +4,8 @@ import containerQueries from "@tailwindcss/container-queries";
 
 export default {
   darkMode: ["class"],
+  // hover: só em dispositivo com mouse — no toque o estado grudava após o tap.
+  future: { hoverOnlyWhenSupported: true },
   content: [
     "./pages/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
