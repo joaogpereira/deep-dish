@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Deep Dish</string>
+    <string name="title_activity_main">Deep Dish</string>
+    <string name="package_name">com.deepdish.app</string>
+    <string name="custom_url_scheme">com.deepdish.app</string>
+</resources>

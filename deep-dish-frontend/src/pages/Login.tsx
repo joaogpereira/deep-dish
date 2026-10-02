@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -157,7 +158,7 @@ const Login: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setShowPassword((v) => !v)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                        className="absolute right-0 top-0 flex h-full w-10 items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
                         aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                       >
                         {showPassword
@@ -221,12 +222,15 @@ const Login: React.FC = () => {
               Criar conta
             </Link>
           </p>
-          <p>
-            É restaurante?{' '}
-            <Link to="/restaurant/login" className="font-medium text-primary hover:text-primary/80 transition-colors">
-              Acesse aqui
-            </Link>
-          </p>
+          {/* O app nativo é só do cliente; o restaurante usa o painel web. */}
+          {!Capacitor.isNativePlatform() && (
+            <p>
+              É restaurante?{' '}
+              <Link to="/restaurant/login" className="font-medium text-primary hover:text-primary/80 transition-colors">
+                Acesse aqui
+              </Link>
+            </p>
+          )}
         </div>
       </motion.div>
     </div>

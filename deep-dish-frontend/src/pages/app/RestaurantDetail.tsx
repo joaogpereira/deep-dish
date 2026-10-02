@@ -197,7 +197,7 @@ const RestaurantDetail: React.FC = () => {
     <div className="space-y-6 animate-fade-in">
       <button
         onClick={() => navigate(-1)}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[36px]"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[44px]"
       >
         <ArrowLeft className="h-4 w-4" />
         Voltar
@@ -341,6 +341,7 @@ const RestaurantDetail: React.FC = () => {
                   <Label className="text-xs text-muted-foreground">Quantas pessoas?</Label>
                   <Input
                     type="number"
+                    inputMode="numeric"
                     min="1"
                     max="20"
                     value={partySize}
@@ -363,7 +364,7 @@ const RestaurantDetail: React.FC = () => {
                     </p>
                     {!!restaurant.fila_ativa && (
                       <p className="text-xs text-muted-foreground">
-                        Use o card de fila de espera ao lado para garantir seu lugar.
+                        Use a fila de espera para garantir seu lugar.
                       </p>
                     )}
                   </div>
@@ -444,7 +445,7 @@ const RestaurantDetail: React.FC = () => {
               {jaEmFilaNesteRestaurante ? (
                 <p className="text-xs text-primary font-medium">
                   Você já está na fila.{' '}
-                  <button className="underline" onClick={() => navigate('/app/queue')}>
+                  <button className="underline min-h-[44px]" onClick={() => navigate('/app/queue')}>
                     Ver posição
                   </button>
                 </p>
@@ -467,6 +468,7 @@ const RestaurantDetail: React.FC = () => {
                     <Input
                       id="fila-pessoas"
                       type="number"
+                      inputMode="numeric"
                       min="1"
                       max="20"
                       value={partySize}
@@ -477,7 +479,7 @@ const RestaurantDetail: React.FC = () => {
                   <Button
                     onClick={handleQueue}
                     disabled={joiningQueue || loadingMesas}
-                    className="w-full min-h-[40px]"
+                    className="w-full min-h-[44px]"
                     size="sm"
                   >
                     {joiningQueue ? 'Entrando...' : 'Entrar na fila'}

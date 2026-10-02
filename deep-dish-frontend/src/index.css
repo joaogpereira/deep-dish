@@ -148,6 +148,15 @@
 }
 
 @layer utilities {
+  /* Barras fixas sob o notch / barra de gestos (requer viewport-fit=cover). */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
   .gradient-hero {
     background: linear-gradient(
       135deg,

@@ -98,7 +98,7 @@ const Queue: React.FC = () => {
       <div className="max-w-lg mx-auto space-y-6 animate-fade-in">
         <Link
           to="/app"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[36px]"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[44px]"
         >
           <Home className="h-4 w-4" />
           Início
@@ -159,7 +159,7 @@ const Queue: React.FC = () => {
       <div className="max-w-lg mx-auto space-y-6 animate-fade-in">
         <Link
           to="/app"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[36px]"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[44px]"
         >
           <Home className="h-4 w-4" />
           Início
@@ -227,7 +227,7 @@ const Queue: React.FC = () => {
         <h1 className="font-display text-2xl font-bold text-foreground">Acompanhar fila</h1>
         <Link
           to="/app"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[36px]"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[44px]"
         >
           <Home className="h-4 w-4" />
           Início
