@@ -143,6 +143,31 @@ class EntradaNaFilaTest extends TestCase
         ]);
     }
 
+    /**
+     * Teto de sanidade no tamanho do grupo.
+     *
+     * O que barrava numero absurdo aqui era so a regra de negocio ("a maior mesa
+     * comporta N"), e ela e um acidente felizo: quem refatorasse aquela checagem
+     * abriria a porta. assertJsonValidationErrors distingue os dois caminhos — a
+     * recusa por capacidade devolve 'message' sem a chave 'errors'.
+     */
+    public function test_grupo_acima_do_teto_e_recusado_pela_validacao(): void
+    {
+        $this->mesa(4, 'livre');
+
+        $this->entrar(101)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('qntd_pessoas');
+    }
+
+    /** O teto nao pode apertar quem e plausivel: 100 passa pela validacao. */
+    public function test_teto_nao_recusa_grupo_plausivel(): void
+    {
+        $this->mesa(100, 'livre');
+
+        $this->entrar(100)->assertCreated();
+    }
+
     private function entrar(int $pessoas)
     {
         return $this->comoCliente()->postJson('/api/fila', [

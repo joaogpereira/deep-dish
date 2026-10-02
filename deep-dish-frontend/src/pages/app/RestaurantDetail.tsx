@@ -454,14 +454,35 @@ const RestaurantDetail: React.FC = () => {
                   Há mesas disponíveis — faça uma reserva acima.
                 </p>
               ) : (
-                <Button
-                  onClick={handleQueue}
-                  disabled={joiningQueue || loadingMesas}
-                  className="w-full min-h-[40px]"
-                  size="sm"
-                >
-                  {joiningQueue ? 'Entrando...' : 'Entrar na fila'}
-                </Button>
+                <>
+                  {/* Sem este campo toda entrada na fila ia com 2 pessoas — o valor
+                      inicial do estado — porque o unico input de quantidade vivia no
+                      card de reservas, atras de reservations_enabled. A alocacao de
+                      mesa (#169) decide pelo tamanho do grupo: com todo mundo valendo
+                      2, nao havia encaixe para acertar. */}
+                  <div>
+                    <Label htmlFor="fila-pessoas" className="text-xs text-muted-foreground">
+                      Quantas pessoas?
+                    </Label>
+                    <Input
+                      id="fila-pessoas"
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={partySize}
+                      onChange={e => setPartySize(e.target.value)}
+                      className="mt-1 w-24"
+                    />
+                  </div>
+                  <Button
+                    onClick={handleQueue}
+                    disabled={joiningQueue || loadingMesas}
+                    className="w-full min-h-[40px]"
+                    size="sm"
+                  >
+                    {joiningQueue ? 'Entrando...' : 'Entrar na fila'}
+                  </Button>
+                </>
               )}
             </div>
           </div>

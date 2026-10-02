@@ -206,6 +206,51 @@ class AnalyticsService
     }
 
     /**
+     * Responde: quanto lugar sobra nas mesas que a fila alocou. Mede a qualidade
+     * do encaixe entre grupo e mesa (issue #169) — desperdicio de uma alocacao e
+     * 'capacidade da mesa menos tamanho do grupo'.
+     *
+     * So conta alocacao feita pelo algoritmo. 'clientemesa' tem duas origens: a
+     * promocao da fila e a reserva que o proprio cliente escolheu clicando numa
+     * mesa. A segunda nao e decisao do algoritmo e poluiria a metrica; o join por
+     * 'clientefila.clientemesa_id' (escrito em ClienteFila::registrarChamada) e o
+     * que separa as duas, porque so a promocao preenche essa coluna.
+     *
+     * O periodo filtra pela ENTRADA na fila, nao pelo instante da alocacao, para
+     * ficar coerente com as outras metricas de fila desta classe.
+     */
+    public function desperdicioDeCapacidade(
+        string $restauranteId,
+        CarbonInterface $inicio,
+        CarbonInterface $fim
+    ): array {
+        $linha = $this->entradasDeFila($restauranteId, $inicio, $fim)
+            ->join('clientemesa', 'clientemesa.id', '=', 'clientefila.clientemesa_id')
+            ->join('mesa', 'mesa.id', '=', 'clientemesa.mesa_id')
+            ->selectRaw('COUNT(*) AS alocacoes')
+            ->selectRaw('COALESCE(SUM(mesa.capacidade), 0) AS ofertados')
+            ->selectRaw('COALESCE(SUM(clientemesa.party_size), 0) AS ocupados')
+            ->selectRaw('COALESCE(SUM(mesa.capacidade - clientemesa.party_size), 0) AS ociosos')
+            ->first();
+
+        $alocacoes = (int) ($linha->alocacoes ?? 0);
+        $ofertados = (int) ($linha->ofertados ?? 0);
+        $ociosos = (int) ($linha->ociosos ?? 0);
+
+        $taxa = $ofertados > 0 ? $ociosos / $ofertados : 0.0;
+
+        return [
+            'total_alocacoes' => $alocacoes,
+            'lugares_ofertados' => $ofertados,
+            'lugares_ocupados' => (int) ($linha->ocupados ?? 0),
+            'lugares_ociosos' => $ociosos,
+            'desperdicio_medio_por_alocacao' => $alocacoes > 0 ? round($ociosos / $alocacoes, 1) : 0.0,
+            'taxa_de_ociosidade' => round($taxa, 4),
+            'taxa_de_ociosidade_percentual' => round($taxa * 100, 2),
+        ];
+    }
+
+    /**
      * Responde: "quanto da minha capacidade instalada rendeu em cada dia?".
      *
      * Taxa de ocupação diária = horas-mesa ocupadas ÷ horas-mesa disponíveis,

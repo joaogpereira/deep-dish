@@ -15,6 +15,20 @@ use InvalidArgumentException;
 
 class FilaController extends Controller
 {
+    /**
+     * Teto de sanidade para o tamanho do grupo.
+     *
+     * A regra de negocio de verdade e outra — 'enfileirar' recusa grupo maior
+     * que a maior mesa do salao. Mas ela nao protegia a ESTIMATIVA, que nao
+     * passa por ali: um numero acima do int4 do Postgres chegava cru no
+     * 'qntd_pessoas BETWEEN ? AND ?' do EstimativaEsperaService e virava 500.
+     *
+     * 100 e generoso de proposito: nao e aqui que se decide o que cabe no salao,
+     * so se o numero e plausivel. O max="20" do input e conveniencia de tela,
+     * nao fronteira de validacao.
+     */
+    private const MAX_PESSOAS = 100;
+
     public function __construct(
         private FilaService $filaService,
         private EstimativaEsperaService $estimativaService,
@@ -27,7 +41,7 @@ class FilaController extends Controller
             // Opcional: sem horário, entra na fila de agora. A tela do cliente não
             // pede horário para entrar na fila — quem escolhe data e hora é reserva.
             'horario_reserva' => ['sometimes', 'date', 'after:now'],
-            'qntd_pessoas' => ['required', 'integer', 'min:1'],
+            'qntd_pessoas' => ['required', 'integer', 'min:1', 'max:'.self::MAX_PESSOAS],
         ]);
 
         $horarioReserva = isset($validated['horario_reserva'])
@@ -191,7 +205,7 @@ class FilaController extends Controller
             'restaurante_id' => ['required', 'string', 'uuid', 'exists:restaurante,id'],
             // Mesma regra do store: sem horário, é a estimativa da fila de agora.
             'horario_reserva' => ['sometimes', 'date'],
-            'qntd_pessoas' => ['required', 'integer', 'min:1'],
+            'qntd_pessoas' => ['required', 'integer', 'min:1', 'max:'.self::MAX_PESSOAS],
         ]);
 
         $horarioReserva = isset($validated['horario_reserva'])

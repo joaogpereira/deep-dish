@@ -86,6 +86,7 @@ class AnalyticsController extends Controller
                 'ocupacao' => $this->analytics->taxaDeOcupacao($restauranteId, $inicio, $fim),
                 'giro_de_mesa' => $this->analytics->giroDeMesa($restauranteId, $inicio, $fim),
                 'mapa_de_calor' => $this->analytics->mapaDeCalorDeDemanda($restauranteId, $inicio, $fim),
+                'desperdicio_de_capacidade' => $this->analytics->desperdicioDeCapacidade($restauranteId, $inicio, $fim),
             ]);
         } catch (InvalidArgumentException $e) {
             // Rede de seguranca: as guardas do servico ja foram cobertas acima,

@@ -10,6 +10,7 @@ use App\Models\Mesa;
 use App\Models\Restaurante;
 use App\Services\FilaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
 use Tests\TestCase;
 
 /**
@@ -200,5 +201,128 @@ class FilaServiceTest extends TestCase
         $this->assertNull($intacta->saiu_em);
         $this->assertNull($intacta->tempo_espera_segundos);
         $this->assertNull($intacta->deleted_at);
+    }
+
+    // ─── E) Alocação de mesa (issue #169) ────────────────────
+
+    /**
+     * O bug que a #169 conserta. Antes o laço externo era o das mesas e
+     * comparava sempre com o primeiro da fila: a mesa de 4 era testada contra a
+     * família de 8, descartada, e ninguém sentava.
+     */
+    public function test_grupo_grande_na_frente_nao_bloqueia_grupo_pequeno_atras(): void
+    {
+        $restaurante = Restaurante::factory()->comFilaAtiva()->create();
+        $fila = Fila::factory()->for($restaurante)->create();
+
+        $familia = ClienteFila::factory()->for($fila)->entrouHa(20)->create(['qntd_pessoas' => 8]);
+        $casal = ClienteFila::factory()->for($fila)->entrouHa(10)->create(['qntd_pessoas' => 2]);
+
+        Mesa::factory()->for($restaurante)->comCapacidade(4)->create();
+
+        $promovidos = app(FilaService::class)->processarPromocoes($restaurante->id);
+
+        $this->assertCount(1, $promovidos);
+        $this->assertSame(4, $this->capacidadeRecebida($promovidos, $casal));
+        $this->assertNull($this->capacidadeRecebida($promovidos, $familia));
+
+        // A família não cabe em lugar nenhum, mas continua esperando.
+        $this->assertNull(ClienteFila::withTrashed()->findOrFail($familia->id)->status_saida);
+    }
+
+    /**
+     * O segundo modo de falha, mais sutil: a mesa pequena era testada contra a
+     * família, descartada, e não voltava ao laço para o casal que vinha atrás.
+     */
+    public function test_mesa_descartada_no_inicio_ainda_serve_para_quem_esta_atras(): void
+    {
+        $restaurante = Restaurante::factory()->comFilaAtiva()->create();
+        $fila = Fila::factory()->for($restaurante)->create();
+
+        $familia = ClienteFila::factory()->for($fila)->entrouHa(20)->create(['qntd_pessoas' => 8]);
+        $casal = ClienteFila::factory()->for($fila)->entrouHa(10)->create(['qntd_pessoas' => 2]);
+
+        Mesa::factory()->for($restaurante)->comCapacidade(2)->create();
+        Mesa::factory()->for($restaurante)->comCapacidade(10)->create();
+
+        $promovidos = app(FilaService::class)->processarPromocoes($restaurante->id);
+
+        $this->assertCount(2, $promovidos);
+        $this->assertSame(10, $this->capacidadeRecebida($promovidos, $familia));
+        $this->assertSame(2, $this->capacidadeRecebida($promovidos, $casal));
+    }
+
+    /** Best-fit: entre duas que cabem, vai para a que desperdiça menos lugar. */
+    public function test_escolhe_a_menor_mesa_que_cabe(): void
+    {
+        $restaurante = Restaurante::factory()->comFilaAtiva()->create();
+        $fila = Fila::factory()->for($restaurante)->create();
+
+        $casal = ClienteFila::factory()->for($fila)->entrouHa(10)->create(['qntd_pessoas' => 2]);
+
+        Mesa::factory()->for($restaurante)->comCapacidade(10)->create();
+        Mesa::factory()->for($restaurante)->comCapacidade(2)->create();
+
+        $promovidos = app(FilaService::class)->processarPromocoes($restaurante->id);
+
+        $this->assertSame(2, $this->capacidadeRecebida($promovidos, $casal));
+    }
+
+    /**
+     * Guarda contra a #169 virar a #170 sem querer: quando os dois cabem na
+     * única mesa, quem chegou primeiro senta. Reordenar a fila por encaixe é
+     * escopo da #170, que traz a regra de anti-starvation junto.
+     */
+    public function test_ordem_de_chegada_e_respeitada_quando_os_dois_cabem(): void
+    {
+        $restaurante = Restaurante::factory()->comFilaAtiva()->create();
+        $fila = Fila::factory()->for($restaurante)->create();
+
+        $primeiro = ClienteFila::factory()->for($fila)->entrouHa(20)->create(['qntd_pessoas' => 2]);
+        $segundo = ClienteFila::factory()->for($fila)->entrouHa(10)->create(['qntd_pessoas' => 2]);
+
+        Mesa::factory()->for($restaurante)->comCapacidade(4)->create();
+
+        $promovidos = app(FilaService::class)->processarPromocoes($restaurante->id);
+
+        $this->assertCount(1, $promovidos);
+        $this->assertSame(4, $this->capacidadeRecebida($promovidos, $primeiro));
+        $this->assertNull($this->capacidadeRecebida($promovidos, $segundo));
+    }
+
+    /**
+     * Limitação conhecida e deferida: grupo maior que qualquer mesa do salão só
+     * é atendido juntando mesas, que o sistema ainda não faz. O que este teste
+     * garante é que ele não trava a fila para quem vem atrás.
+     */
+    public function test_grupo_maior_que_qualquer_mesa_nao_trava_a_fila(): void
+    {
+        $restaurante = Restaurante::factory()->comFilaAtiva()->create();
+        $fila = Fila::factory()->for($restaurante)->create();
+
+        $excursao = ClienteFila::factory()->for($fila)->entrouHa(20)->create(['qntd_pessoas' => 12]);
+        $casal = ClienteFila::factory()->for($fila)->entrouHa(10)->create(['qntd_pessoas' => 2]);
+
+        Mesa::factory()->for($restaurante)->comCapacidade(4)->create();
+
+        $promovidos = app(FilaService::class)->processarPromocoes($restaurante->id);
+
+        $this->assertCount(1, $promovidos);
+        $this->assertSame(4, $this->capacidadeRecebida($promovidos, $casal));
+        $this->assertNull(ClienteFila::withTrashed()->findOrFail($excursao->id)->status_saida);
+    }
+
+    /**
+     * Capacidade da mesa que a entrada recebeu, ou null se ela não foi
+     * promovida. Lê pelo retorno de processarPromocoes() — o contrato público —
+     * em vez de reconstruir o vínculo pelo banco.
+     *
+     * @param  Collection<int, \App\Models\ClienteMesa>  $promovidos
+     */
+    private function capacidadeRecebida(Collection $promovidos, ClienteFila $entrada): ?int
+    {
+        $reserva = $promovidos->firstWhere('cliente_id', $entrada->cliente_id);
+
+        return $reserva === null ? null : (int) Mesa::findOrFail($reserva->mesa_id)->capacidade;
     }
 }
