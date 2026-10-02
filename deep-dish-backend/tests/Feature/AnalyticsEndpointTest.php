@@ -61,6 +61,10 @@ class AnalyticsEndpointTest extends TestCase
             'ocupacao',
             'giro_de_mesa' => ['mesas', 'total_atendimentos', 'duracao_media_geral_segundos'],
             'mapa_de_calor' => ['celulas', 'pico'],
+            'desperdicio_de_capacidade' => [
+                'total_alocacoes', 'lugares_ofertados', 'lugares_ocupados', 'lugares_ociosos',
+                'desperdicio_medio_por_alocacao', 'taxa_de_ociosidade', 'taxa_de_ociosidade_percentual',
+            ],
         ]);
 
         // As series vem completas mesmo com um unico registro no periodo.

@@ -262,12 +262,26 @@ class FilaService
     }
 
     /**
-     * Quem senta em qual mesa. Hoje mantém a regra antiga — FIFO estrito, o
-     * primeiro da fila cabe ou a mesa fica vazia — só que aplicada a todas as
-     * mesas disponíveis de uma vez, e não a uma só.
+     * Quem senta em qual mesa: cada entrada, na ordem de chegada, recebe a menor
+     * mesa que a comporta.
      *
-     * É este método que a #169 troca pelo best-fit, acabando com o bloqueio que
-     * um grupo grande na frente causa hoje.
+     * O laço externo é o das ENTRADAS, e essa é a correção. Antes ele era o das
+     * mesas e comparava sempre com o primeiro da fila: quando o primeiro não
+     * cabia, o código pulava para a próxima mesa e nunca para a próxima pessoa.
+     * Uma família de 8 na frente segurava um casal atrás com mesa de 2 vaga, e a
+     * mesa descartada cedo no laço não voltava para quem vinha depois.
+     *
+     * "Menor mesa que cabe" sai de graça: mesasDisponiveis() já ordena por
+     * capacidade crescente, então a primeira que serve é a mais justa.
+     *
+     * A ordem da fila é respeitada de propósito. Escolher globalmente a
+     * combinação de menor desperdício deixaria um grupo maior passar na frente
+     * de quem chegou antes sem sentar mais ninguém — reordenar a fila é escopo
+     * da #170, que traz junto a regra de anti-starvation.
+     *
+     * Quem não cabe em mesa nenhuma é pulado e continua na fila. Grupo maior que
+     * qualquer mesa do salão só é atendido juntando mesas, que o sistema ainda
+     * não faz.
      *
      * @param  Collection<int, Mesa>  $mesas
      * @return list<array{0: ClienteFila, 1: Mesa}>
@@ -275,21 +289,24 @@ class FilaService
     private function escolherAlocacoes(string $restauranteId, Collection $mesas): array
     {
         $entradas = $this->entradasAguardando($restauranteId);
+        $disponiveis = $mesas->values();
         $alocacoes = [];
 
-        foreach ($mesas as $mesa) {
-            $proximo = $entradas->first();
-
-            if (! $proximo) {
+        foreach ($entradas as $entrada) {
+            if ($disponiveis->isEmpty()) {
                 break;
             }
 
-            if ($mesa->capacidade < $proximo->qntd_pessoas) {
+            $indice = $disponiveis->search(
+                fn (Mesa $mesa) => $mesa->capacidade >= $entrada->qntd_pessoas
+            );
+
+            if ($indice === false) {
                 continue;
             }
 
-            $alocacoes[] = [$proximo, $mesa];
-            $entradas->shift();
+            $alocacoes[] = [$entrada, $disponiveis->get($indice)];
+            $disponiveis->forget($indice);
         }
 
         return $alocacoes;

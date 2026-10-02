@@ -32,6 +32,11 @@ const traducoes: Record<string, string> = {
   'The password field must be at least 6 characters.' : 'A senha deve ter pelo menos 6 caracteres.',
   'The estado field must be 2 characters.'            : 'O estado deve ter 2 caracteres. Ex: SP.',
   'The name field must not be greater than 255 characters.' : 'O nome deve ter no máximo 255 caracteres.',
+  // O input de fila tem max="20", mas o navegador nao impede digitar 999 — o erro
+  // do servidor chega na tela, e sem estas linhas chegaria em ingles.
+  'The qntd pessoas field must not be greater than 100.'   : 'Informe um número de pessoas entre 1 e 100.',
+  'The qntd pessoas field must be at least 1.'             : 'Informe pelo menos 1 pessoa.',
+  'The qntd pessoas field must be an integer.'             : 'O número de pessoas deve ser inteiro.',
   'The cep field format is invalid.'                  : 'O CEP é inválido. Use o formato 00000-000.',
   'The email field must be a valid email address.'    : 'O e-mail informado é inválido.',
 

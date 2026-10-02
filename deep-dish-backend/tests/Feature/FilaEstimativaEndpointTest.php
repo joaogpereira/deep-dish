@@ -184,6 +184,38 @@ class FilaEstimativaEndpointTest extends TestCase
 
     // ───────────────────────── Helpers ─────────────────────────
 
+    /**
+     * Regressao: a estimativa devolvia 500 para tamanho acima do int4.
+     *
+     * A rota nao passa por 'enfileirar', entao nada limitava o numero: ele
+     * chegava cru no 'qntd_pessoas BETWEEN ? AND ?' do EstimativaEsperaService e
+     * o Postgres estourava ("value out of range for type integer"). Qualquer
+     * cliente autenticado derrubava a rota.
+     */
+    public function test_tamanho_acima_do_int4_nao_derruba_a_estimativa(): void
+    {
+        $restaurante = $this->restaurante();
+
+        $this->comToken(Cliente::factory()->create())
+            ->getJson('/api/fila/estimativa?restaurante_id='.$restaurante->id.'&qntd_pessoas=9999999999')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('qntd_pessoas');
+    }
+
+    /**
+     * O outro sintoma: numero absurdo mas dentro do int4 respondia 200 e
+     * estimava a espera de um milhao de pessoas como se fosse normal.
+     */
+    public function test_estimativa_nao_responde_200_para_tamanho_absurdo(): void
+    {
+        $restaurante = $this->restaurante();
+
+        $this->comToken(Cliente::factory()->create())
+            ->getJson('/api/fila/estimativa?restaurante_id='.$restaurante->id.'&qntd_pessoas=1000000')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('qntd_pessoas');
+    }
+
     private function restaurante(): Restaurante
     {
         // comFilaAtiva: entrar na fila exige a flag ligada (#168).

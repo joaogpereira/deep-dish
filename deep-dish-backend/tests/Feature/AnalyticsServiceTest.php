@@ -491,6 +491,103 @@ class AnalyticsServiceTest extends TestCase
     // ───────────────────────── Helpers ─────────────────────────
 
     /** Instante como hora de parede no fuso do restaurante. */
+    // ─── E) Desperdício de capacidade (issue #169) ──────────
+
+    public function test_desperdicio_de_capacidade_soma_os_lugares_que_sobraram(): void
+    {
+        [$inicio, $fim] = $this->agosto();
+        $fila = Fila::factory()->for($this->restaurante)->create();
+
+        $mesaDe4 = Mesa::factory()->for($this->restaurante)->comCapacidade(4)->create();
+        $mesaDe6 = Mesa::factory()->for($this->restaurante)->comCapacidade(6)->create();
+
+        // 4 lugares para 2 pessoas sobram 2; 6 para 5 sobra 1.
+        $this->promovido($fila, $mesaDe4, $this->local('2026-08-19 13:00:00'), 2);
+        $this->promovido($fila, $mesaDe6, $this->local('2026-08-20 13:00:00'), 5);
+
+        $metrica = $this->analytics->desperdicioDeCapacidade($this->restaurante->id, $inicio, $fim);
+
+        $this->assertSame(2, $metrica['total_alocacoes']);
+        $this->assertSame(10, $metrica['lugares_ofertados']);
+        $this->assertSame(7, $metrica['lugares_ocupados']);
+        $this->assertSame(3, $metrica['lugares_ociosos']);
+        $this->assertSame(1.5, $metrica['desperdicio_medio_por_alocacao']);
+        $this->assertEqualsWithDelta(0.3, $metrica['taxa_de_ociosidade'], 0.0001);
+    }
+
+    /**
+     * A métrica mede a escolha do ALGORITMO. Reserva que o próprio cliente
+     * marcou clicando numa mesa não é decisão dele e ficaria como ruído — o que
+     * separa as duas é a 'clientemesa_id', que só a promoção preenche.
+     */
+    public function test_reserva_escolhida_pelo_cliente_nao_entra_no_desperdicio(): void
+    {
+        [$inicio, $fim] = $this->agosto();
+        $fila = Fila::factory()->for($this->restaurante)->create();
+
+        $mesaDe4 = Mesa::factory()->for($this->restaurante)->comCapacidade(4)->create();
+        $mesaDe8 = Mesa::factory()->for($this->restaurante)->comCapacidade(8)->create();
+
+        $this->promovido($fila, $mesaDe4, $this->local('2026-08-19 13:00:00'), 2);
+
+        // Reserva avulsa: casal que escolheu sozinho uma mesa de 8. Se entrasse
+        // na conta, os 6 lugares ociosos dobrariam o desperdicio medido.
+        ClienteMesa::factory()->for($mesaDe8)->create([
+            'horario_reserva' => $this->local('2026-08-19 20:00:00')->utc(),
+            'party_size' => 2,
+            'status' => 'confirmada',
+        ]);
+
+        $metrica = $this->analytics->desperdicioDeCapacidade($this->restaurante->id, $inicio, $fim);
+
+        $this->assertSame(1, $metrica['total_alocacoes']);
+        $this->assertSame(2, $metrica['lugares_ociosos']);
+    }
+
+    public function test_desperdicio_sem_nenhuma_alocacao_nao_divide_por_zero(): void
+    {
+        [$inicio, $fim] = $this->agosto();
+
+        $metrica = $this->analytics->desperdicioDeCapacidade($this->restaurante->id, $inicio, $fim);
+
+        $this->assertSame(0, $metrica['total_alocacoes']);
+        $this->assertSame(0, $metrica['lugares_ociosos']);
+        $this->assertSame(0.0, $metrica['desperdicio_medio_por_alocacao']);
+        $this->assertSame(0.0, $metrica['taxa_de_ociosidade']);
+    }
+
+    /**
+     * Entrada de fila promovida para uma mesa, pela mesma porta que o
+     * FilaService usa: registrarChamada() é quem preenche 'clientemesa_id', e é
+     * essa coluna que a métrica usa para separar a alocação do algoritmo da
+     * reserva avulsa. Mesmo cuidado com o relógio do helper entrada().
+     */
+    private function promovido(Fila $fila, Mesa $mesa, Carbon $chegada, int $pessoas): ClienteFila
+    {
+        $chegadaUtc = $chegada->copy()->utc();
+
+        Carbon::setTestNow($chegadaUtc->copy()->addMinutes(10));
+
+        try {
+            $entrada = ClienteFila::factory()->for($fila)->create([
+                'created_at' => $chegadaUtc,
+                'qntd_pessoas' => $pessoas,
+            ]);
+
+            $reserva = ClienteMesa::factory()->for($mesa)->create([
+                'horario_reserva' => $chegadaUtc->copy()->addMinutes(10),
+                'party_size' => $pessoas,
+                'status' => 'confirmada',
+            ]);
+
+            $entrada->registrarChamada($reserva);
+
+            return $entrada;
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     private function local(string $datahora): Carbon
     {
         return Carbon::parse($datahora, self::FUSO);
