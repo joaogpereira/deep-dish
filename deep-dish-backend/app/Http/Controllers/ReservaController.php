@@ -8,6 +8,7 @@ use App\Models\ClienteMesa;
 use App\Models\Mesa;
 use App\Models\Restaurante;
 use App\Services\FilaService;
+use App\Services\MesaLimpezaService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -113,8 +114,14 @@ class ReservaController extends Controller
                 $reserva->registrarSaida();
                 $mesa = Mesa::find($reserva->mesa_id);
                 if ($mesa) {
-                    if (in_array($mesa->status, ['reservada', 'ocupada'])) {
-                        $mesa->update(['status' => 'livre']);
+                    // 'ocupada' significa que houve check-in, logo alguem sentou e a
+                    // mesa precisa de limpeza (#171). No-show nunca chega aqui
+                    // 'ocupada', entao vai direto para 'livre' — e e so isso que
+                    // separa os dois casos.
+                    if ($mesa->status === Mesa::STATUS_OCUPADA) {
+                        app(MesaLimpezaService::class)->marcarParaLimpeza($mesa);
+                    } elseif ($mesa->status === 'reservada') {
+                        $mesa->update(['status' => Mesa::STATUS_LIVRE]);
                     }
                     // Chave do array: expirar 10 reservas do mesmo salão avisa o
                     // painel uma vez, não dez.
@@ -310,10 +317,11 @@ class ReservaController extends Controller
         // Cancelamento depois do check-in é permanência real; antes dele fica NULL.
         $reserva->registrarSaida();
 
-        // Libera a mesa se estiver ocupada (check-in já havia sido feito)
+        // Com check-in houve permanencia real, logo a mesa vai para limpeza em vez
+        // de voltar direto ao salao (#171).
         $mesa = Mesa::find($reserva->mesa_id);
-        if ($mesa && $mesa->status === 'ocupada') {
-            $mesa->update(['status' => 'livre']);
+        if ($mesa && $mesa->status === Mesa::STATUS_OCUPADA) {
+            app(MesaLimpezaService::class)->marcarParaLimpeza($mesa);
         }
 
         if ($mesa) {
@@ -415,11 +423,19 @@ class ReservaController extends Controller
         $reserva->update(['status' => 'liberada']);
         $reserva->registrarSaida();
 
-        // Mesa volta a ficar livre
+        // Antes a mesa voltava direto para 'livre'. Agora passa por limpeza quando
+        // alguem sentou de fato (#171); liberar reserva sem check-in continua
+        // devolvendo a mesa na hora, porque nao houve uso.
         $mesa = $reserva->mesa;
         if ($mesa) {
-            $mesa->update(['status' => 'livre']);
+            if ($mesa->status === Mesa::STATUS_OCUPADA) {
+                app(MesaLimpezaService::class)->marcarParaLimpeza($mesa);
+            } else {
+                $mesa->update(['status' => Mesa::STATUS_LIVRE]);
+            }
 
+            // A promocao continua sendo chamada: mesmo que a mesa va para limpeza, a
+            // janela de horario que a reserva segurava foi devolvida.
             app(FilaService::class)->processarPromocoes((string) $mesa->restaurante_id);
         }
 

@@ -18,3 +18,8 @@ Schedule::command('fila:expirar-chamados')->everyMinute();
 // já chamam a fila na hora, e este comando pega o resto (entrar na fila com
 // mesa vaga, janela de reserva vencida no relógio).
 Schedule::command('fila:promover')->everyMinute();
+
+// A cada minuto porque a tolerância é de 5: de cinco em cinco, uma mesa esquecida
+// poderia ficar parada quase 10 min. Ela é a rede que impede o fluxo de limpeza
+// de travar a fila quando a equipe não marca.
+Schedule::command('mesas:liberar-limpeza')->everyMinute();

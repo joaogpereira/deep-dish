@@ -7,9 +7,9 @@ import { Label } from '@/components/ui/label';
 import StatusBadge from '@/components/StatusBadge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Mesa } from '@/types';
+import { Mesa, MesaStatus } from '@/types';
 import { mesasService } from '@/services/mesas.service';
-import { Plus, Pencil, Lock, Unlock, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Lock, Unlock, Trash2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 const Tables: React.FC = () => {
@@ -84,6 +84,26 @@ const Tables: React.FC = () => {
     }
   };
 
+  /**
+   * Transicoes do ciclo de limpeza (#171). Mesmo padrao do toggleStatus: aplica a
+   * resposta do servidor, que e quem sabe o estado final — o backend valida a
+   * transicao e pode recusar.
+   */
+  const avancarLimpeza = async (t: Mesa) => {
+    const next: MesaStatus = t.status === 'aguardando_limpeza' ? 'em_limpeza' : 'livre';
+    try {
+      const updated = await mesasService.update(t.id, { status: next });
+      setTables(prev => prev.map(tb => tb.id === t.id ? updated : tb));
+      toast.success(
+        next === 'em_limpeza'
+          ? `Limpeza da mesa ${t.numero} iniciada.`
+          : `Mesa ${t.numero} pronta.`
+      );
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar limpeza.');
+    }
+  };
+
   const handleDelete = async (t: Mesa) => {
     try {
       await mesasService.remove(t.id);
@@ -150,6 +170,17 @@ const Tables: React.FC = () => {
                   <><Lock className="h-3.5 w-3.5 mr-1" />Bloquear</>
                 )}
               </Button>
+              {(t.status === 'aguardando_limpeza' || t.status === 'em_limpeza') && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-8 px-2.5 text-xs"
+                  onClick={() => avancarLimpeza(t)}
+                >
+                  <Sparkles className="h-3.5 w-3.5 mr-1" />
+                  {t.status === 'aguardando_limpeza' ? 'Iniciar limpeza' : 'Limpeza concluída'}
+                </Button>
+              )}
               <Button
                 variant="destructive"
                 size="sm"

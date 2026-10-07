@@ -43,7 +43,12 @@ class FilaPromocaoTest extends TestCase
 
     // ───────────────── Caminhos que liberam lugar ─────────────────
 
-    public function test_cancelar_reserva_com_checkin_libera_a_mesa_e_chama_a_fila(): void
+    /**
+     * Antes a mesa voltava para 'livre' e a fila andava na hora. Com o ciclo de
+     * limpeza (#171) ela passa por 'aguardando_limpeza', e quem espera continua
+     * esperando ate a mesa estar pronta — a fila anda na conclusao, nao na saida.
+     */
+    public function test_cancelar_reserva_com_checkin_manda_a_mesa_para_limpeza(): void
     {
         $mesa = $this->mesa(4, 'ocupada');
         $cliente = Cliente::factory()->create();
@@ -54,6 +59,14 @@ class FilaPromocaoTest extends TestCase
 
         $this->comoCliente($cliente)
             ->deleteJson("/api/reservas/{$reserva->id}")
+            ->assertOk();
+
+        $this->assertSame('aguardando_limpeza', $mesa->fresh()->status);
+        $this->assertAindaEsperando($esperando);
+
+        // Mesa pronta: agora sim.
+        $this->comoRestaurante()
+            ->putJson("/api/restaurante/mesas/{$mesa->id}", ['status' => 'livre'])
             ->assertOk();
 
         $this->assertChamado($esperando, $mesa);
@@ -74,7 +87,8 @@ class FilaPromocaoTest extends TestCase
         $this->assertChamado($esperando, $mesa);
     }
 
-    public function test_liberar_pelo_painel_chama_a_fila(): void
+    /** Mesmo caminho pelo painel, passando pelos dois estados de limpeza. */
+    public function test_liberar_pelo_painel_manda_a_mesa_para_limpeza(): void
     {
         $mesa = $this->mesa(4, 'ocupada');
         $reserva = ClienteMesa::factory()->for($mesa, 'mesa')->emAndamento()->create();
@@ -82,6 +96,20 @@ class FilaPromocaoTest extends TestCase
 
         $this->comoRestaurante()
             ->patchJson("/api/restaurante/reservas/{$reserva->id}/liberar")
+            ->assertOk();
+
+        $this->assertSame('aguardando_limpeza', $mesa->fresh()->status);
+        $this->assertAindaEsperando($esperando);
+
+        $this->comoRestaurante()
+            ->putJson("/api/restaurante/mesas/{$mesa->id}", ['status' => 'em_limpeza'])
+            ->assertOk();
+
+        $this->assertSame('em_limpeza', $mesa->fresh()->status);
+        $this->assertAindaEsperando($esperando);
+
+        $this->comoRestaurante()
+            ->putJson("/api/restaurante/mesas/{$mesa->id}", ['status' => 'livre'])
             ->assertOk();
 
         $this->assertChamado($esperando, $mesa);

@@ -64,6 +64,21 @@ class MesaFactory extends Factory
         return $this->state(fn () => ['status' => 'bloqueada']);
     }
 
+    /**
+     * Mesa suja esperando alguem comecar a limpar (#171). O state NAO abre linha em
+     * 'mesa_limpeza': testes que precisam do ciclo devem passar pelo
+     * MesaLimpezaService, que e quem mantem os dois em dia.
+     */
+    public function aguardandoLimpeza(): static
+    {
+        return $this->state(fn () => ['status' => 'aguardando_limpeza']);
+    }
+
+    public function emLimpeza(): static
+    {
+        return $this->state(fn () => ['status' => 'em_limpeza']);
+    }
+
     public function comCapacidade(int $lugares): static
     {
         return $this->state(fn () => ['capacidade' => $lugares]);
