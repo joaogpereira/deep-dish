@@ -251,6 +251,65 @@ class AnalyticsService
     }
 
     /**
+     * Responde: quanto tempo a mesa fica fora de operacao entre um cliente e o
+     * proximo, e onde esse tempo e gasto (issue #171).
+     *
+     * Sao dois tempos, e separa-los e o ponto:
+     *
+     *   espera  aguardando_desde -> iniciada_em    mesa suja e parada
+     *   limpeza iniciada_em      -> finalizada_em  a limpeza em si
+     *
+     * A espera costuma ser a maior das duas, e e a que o restaurante consegue
+     * atacar — por isso ela aparece separada e nao diluida num total.
+     *
+     * Ciclo liberado automaticamente pela 'mesas:liberar-limpeza' fica FORA das
+     * medias: ninguem limpou, entao o numero mediria o esquecimento da equipe e nao
+     * o tempo de limpeza. Ele e contado a parte, porque a proporcao de automaticos
+     * responde se a metrica e confiavel.
+     */
+    public function temposDeLimpeza(
+        string $restauranteId,
+        CarbonInterface $inicio,
+        CarbonInterface $fim
+    ): array {
+        $linha = $this->ciclosDeLimpeza($restauranteId, $inicio, $fim)
+            ->selectRaw('COUNT(*) AS ciclos')
+            ->selectRaw('COUNT(*) FILTER (WHERE mesa_limpeza.liberada_automaticamente) AS automaticos')
+            ->selectRaw(
+                'AVG(EXTRACT(EPOCH FROM (mesa_limpeza.iniciada_em - mesa_limpeza.aguardando_desde)))
+                 FILTER (WHERE mesa_limpeza.iniciada_em IS NOT NULL
+                     AND NOT mesa_limpeza.liberada_automaticamente) AS espera_media'
+            )
+            ->selectRaw(
+                'AVG(mesa_limpeza.duracao_segundos)
+                 FILTER (WHERE NOT mesa_limpeza.liberada_automaticamente) AS limpeza_media'
+            )
+            ->selectRaw(
+                'COUNT(*) FILTER (WHERE mesa_limpeza.duracao_segundos IS NOT NULL
+                     AND NOT mesa_limpeza.liberada_automaticamente) AS ciclos_cronometrados'
+            )
+            ->first();
+
+        $ciclos = (int) ($linha->ciclos ?? 0);
+        $automaticos = (int) ($linha->automaticos ?? 0);
+        $espera = round((float) ($linha->espera_media ?? 0), 1);
+        $limpeza = round((float) ($linha->limpeza_media ?? 0), 1);
+
+        $proporcao = $ciclos > 0 ? $automaticos / $ciclos : 0.0;
+
+        return [
+            'ciclos' => $ciclos,
+            'ciclos_cronometrados' => (int) ($linha->ciclos_cronometrados ?? 0),
+            'liberados_automaticamente' => $automaticos,
+            'espera_media_segundos' => $espera,
+            'limpeza_media_segundos' => $limpeza,
+            'total_medio_segundos' => round($espera + $limpeza, 1),
+            'taxa_automatica' => round($proporcao, 4),
+            'taxa_automatica_percentual' => round($proporcao * 100, 2),
+        ];
+    }
+
+    /**
      * Responde: "quanto da minha capacidade instalada rendeu em cada dia?".
      *
      * Taxa de ocupação diária = horas-mesa ocupadas ÷ horas-mesa disponíveis,
@@ -489,6 +548,25 @@ class AnalyticsService
     }
 
     /** Reservas e atendimentos do restaurante no período, amarrados via 'mesa'. */
+    /**
+     * Ciclos de limpeza fechados do restaurante no periodo (#171).
+     *
+     * So ciclo fechado entra: um ciclo em aberto nao tem duracao e distorceria a
+     * media. O periodo filtra pela abertura, coerente com as outras metricas.
+     */
+    private function ciclosDeLimpeza(string $restauranteId, CarbonInterface $inicio, CarbonInterface $fim): Builder
+    {
+        return $this->noPeriodo(
+            DB::table('mesa_limpeza')
+                ->join('mesa', 'mesa.id', '=', 'mesa_limpeza.mesa_id')
+                ->where('mesa.restaurante_id', $restauranteId)
+                ->whereNotNull('mesa_limpeza.finalizada_em'),
+            $this->emFusoLocal('mesa_limpeza.aguardando_desde'),
+            $inicio,
+            $fim
+        );
+    }
+
     private function reservas(string $restauranteId, CarbonInterface $inicio, CarbonInterface $fim): Builder
     {
         return $this->noPeriodo(

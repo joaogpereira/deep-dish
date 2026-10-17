@@ -6,6 +6,7 @@ use App\Models\ClienteFila;
 use App\Models\ClienteMesa;
 use App\Models\Fila;
 use App\Models\Mesa;
+use App\Models\MesaLimpeza;
 use App\Models\Restaurante;
 use App\Services\AnalyticsService;
 use Database\Seeders\HistoricoSinteticoSeeder;
@@ -586,6 +587,102 @@ class AnalyticsServiceTest extends TestCase
         } finally {
             Carbon::setTestNow();
         }
+    }
+
+    // ─── F) Tempos de limpeza (issue #171) ──────────
+
+    public function test_tempos_de_limpeza_separa_espera_de_limpeza(): void
+    {
+        [$inicio, $fim] = $this->agosto();
+        $mesa = Mesa::factory()->for($this->restaurante)->create();
+
+        // Ficou 300s parada suja, depois 120s sendo limpa.
+        $this->ciclo($mesa, $this->local('2026-08-19 13:00:00'), 300, 120);
+        // E um ciclo mais rapido: 100s parada, 60s de limpeza.
+        $this->ciclo($mesa, $this->local('2026-08-20 13:00:00'), 100, 60);
+
+        $m = $this->analytics->temposDeLimpeza($this->restaurante->id, $inicio, $fim);
+
+        $this->assertSame(2, $m['ciclos']);
+        $this->assertSame(2, $m['ciclos_cronometrados']);
+        $this->assertSame(0, $m['liberados_automaticamente']);
+        $this->assertSame(200.0, $m['espera_media_segundos']);
+        $this->assertSame(90.0, $m['limpeza_media_segundos']);
+        $this->assertSame(290.0, $m['total_medio_segundos']);
+    }
+
+    /**
+     * Ciclo que a 'mesas:liberar-limpeza' fechou por tolerancia vencida nao entra na
+     * media: ninguem limpou, entao ele mediria o esquecimento da equipe. Mas e
+     * contado a parte, porque a proporcao diz se a media e confiavel.
+     */
+    public function test_ciclo_liberado_automaticamente_fica_fora_da_media(): void
+    {
+        [$inicio, $fim] = $this->agosto();
+        $mesa = Mesa::factory()->for($this->restaurante)->create();
+
+        $this->ciclo($mesa, $this->local('2026-08-19 13:00:00'), 100, 60);
+        $this->ciclo($mesa, $this->local('2026-08-20 13:00:00'), 9000, null, true);
+
+        $m = $this->analytics->temposDeLimpeza($this->restaurante->id, $inicio, $fim);
+
+        $this->assertSame(2, $m['ciclos']);
+        $this->assertSame(1, $m['liberados_automaticamente']);
+        // As medias sao as do ciclo humano, nao contaminadas pelos 9000s do automatico.
+        $this->assertSame(100.0, $m['espera_media_segundos']);
+        $this->assertSame(60.0, $m['limpeza_media_segundos']);
+        $this->assertSame(50.0, $m['taxa_automatica_percentual']);
+    }
+
+    public function test_tempos_de_limpeza_sem_ciclo_nao_divide_por_zero(): void
+    {
+        [$inicio, $fim] = $this->agosto();
+
+        $m = $this->analytics->temposDeLimpeza($this->restaurante->id, $inicio, $fim);
+
+        $this->assertSame(0, $m['ciclos']);
+        $this->assertSame(0.0, $m['espera_media_segundos']);
+        $this->assertSame(0.0, $m['limpeza_media_segundos']);
+        $this->assertSame(0.0, $m['taxa_automatica']);
+    }
+
+    public function test_tempos_de_limpeza_nao_vazam_de_outro_restaurante(): void
+    {
+        [$inicio, $fim] = $this->agosto();
+        $outro = Restaurante::factory()->create();
+
+        $this->ciclo(
+            Mesa::factory()->for($outro)->create(),
+            $this->local('2026-08-19 13:00:00'),
+            100,
+            60
+        );
+
+        $this->assertSame(0, $this->analytics->temposDeLimpeza($this->restaurante->id, $inicio, $fim)['ciclos']);
+    }
+
+    /**
+     * Ciclo fechado, com os tempos exatos. Grava a linha direto porque aqui o que se
+     * testa e o agregado — o comportamento do servico vive no MesaLimpezaTest.
+     */
+    private function ciclo(
+        Mesa $mesa,
+        Carbon $abertura,
+        int $esperaSegundos,
+        ?int $limpezaSegundos,
+        bool $automatico = false
+    ): MesaLimpeza {
+        $aberturaUtc = $abertura->copy()->utc();
+        $iniciada = $limpezaSegundos === null ? null : $aberturaUtc->copy()->addSeconds($esperaSegundos);
+
+        return MesaLimpeza::create([
+            'mesa_id' => $mesa->id,
+            'aguardando_desde' => $aberturaUtc,
+            'iniciada_em' => $iniciada,
+            'finalizada_em' => ($iniciada ?? $aberturaUtc)->copy()->addSeconds($limpezaSegundos ?? $esperaSegundos),
+            'duracao_segundos' => $limpezaSegundos,
+            'liberada_automaticamente' => $automatico,
+        ]);
     }
 
     private function local(string $datahora): Carbon

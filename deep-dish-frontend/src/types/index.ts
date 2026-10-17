@@ -56,7 +56,11 @@ export interface AuthSession {
 }
 
 // Mesa conforme retornada pelo backend (máquina de estados: livre → reservada → ocupada → livre)
-export type MesaStatus = 'livre' | 'reservada' | 'ocupada' | 'bloqueada';
+// 'aguardando_limpeza' e 'em_limpeza' sao os estados entre o cliente sair e a mesa
+// estar pronta (#171). A mesa nao recebe ninguem neles, mas vai voltar.
+export type MesaStatus =
+  | 'livre' | 'reservada' | 'ocupada' | 'bloqueada'
+  | 'aguardando_limpeza' | 'em_limpeza';
 
 export interface Mesa {
   id: number | string;

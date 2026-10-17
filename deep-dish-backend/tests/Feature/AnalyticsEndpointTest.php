@@ -65,6 +65,11 @@ class AnalyticsEndpointTest extends TestCase
                 'total_alocacoes', 'lugares_ofertados', 'lugares_ocupados', 'lugares_ociosos',
                 'desperdicio_medio_por_alocacao', 'taxa_de_ociosidade', 'taxa_de_ociosidade_percentual',
             ],
+            'tempos_de_limpeza' => [
+                'ciclos', 'ciclos_cronometrados', 'liberados_automaticamente',
+                'espera_media_segundos', 'limpeza_media_segundos', 'total_medio_segundos',
+                'taxa_automatica', 'taxa_automatica_percentual',
+            ],
         ]);
 
         // As series vem completas mesmo com um unico registro no periodo.
