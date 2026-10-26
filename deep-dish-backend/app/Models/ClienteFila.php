@@ -132,6 +132,17 @@ class ClienteFila extends Model
     /**
      * Posição atual na fila, contando apenas clientes ativos.
      * Retorna null para quem já saiu — não existe "posição" de quem não está na fila.
+     *
+     * Conta por RESTAURANTE, não por 'fila_id', e isso é a correção de um bug.
+     *
+     * Existe uma 'fila' por restaurante e horário, e a entrada sem horário cai na
+     * janela da hora corrente (Fila::janelaAtual()). Então quando o relógio vira a
+     * hora, quem entra nasce numa fila nova — e contando por 'fila_id' essa pessoa
+     * recebia "posição 1" com sete esperando no salão.
+     *
+     * Quem decide a ordem real de chamada é FilaService::entradasAguardando, que
+     * varre TODAS as filas abertas do restaurante ordenadas por chegada. A posição
+     * mostrada tem que usar o mesmo recorte, senão ela mente.
      */
     public function getPosicaoAttribute(): ?int
     {
@@ -139,9 +150,18 @@ class ClienteFila extends Model
             return null;
         }
 
+        $restauranteId = $this->fila?->restaurante_id;
+
+        if ($restauranteId === null) {
+            return null;
+        }
+
         return 1 + (int) static::query()
             ->ativas()
-            ->where('fila_id', $this->fila_id)
+            ->whereHas('fila', fn (Builder $q) => $q
+                ->where('restaurante_id', $restauranteId)
+                ->where('status', Fila::STATUS_ABERTA)
+            )
             ->where(function (Builder $q) {
                 $q->where('created_at', '<', $this->created_at)
                     ->orWhere(function (Builder $q2) {
