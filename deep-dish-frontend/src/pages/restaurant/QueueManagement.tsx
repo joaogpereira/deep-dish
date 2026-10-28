@@ -5,7 +5,8 @@ import EmptyState from '@/components/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { queueService } from '@/services/queue.service';
 import { ClienteFilaEntry } from '@/types';
-import { ListOrdered, Users, Clock } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ListOrdered, Users, Clock, QrCode, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatBRT } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -60,9 +61,17 @@ const QueueManagement: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-bold text-foreground">Fila de espera</h1>
-        <span className="text-sm text-muted-foreground">{entries.length} {entries.length === 1 ? 'pessoa' : 'pessoas'}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">{entries.length} {entries.length === 1 ? 'pessoa' : 'pessoas'}</span>
+          <Button asChild size="sm" variant="outline" className="min-h-[36px] gap-1.5">
+            <Link to="/restaurant/queue/qr">
+              <QrCode className="h-4 w-4" aria-hidden="true" />
+              QR da fila
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {entries.length === 0 ? (
@@ -79,7 +88,7 @@ const QueueManagement: React.FC = () => {
               className="rounded-2xl bg-card p-4 shadow-card flex flex-col sm:flex-row sm:items-center gap-3 transition-all duration-200 hover:shadow-card-hover"
             >
               <div className="flex items-center justify-center h-9 w-9 rounded-full bg-primary/10 shrink-0">
-                <span className="text-sm font-bold text-primary">#{idx + 1}</span>
+                <span className="text-sm font-bold text-primary">#{e.posicao ?? idx + 1}</span>
               </div>
 
               <div className="flex-1 min-w-0">
@@ -88,6 +97,15 @@ const QueueManagement: React.FC = () => {
                     {e.cliente?.name ?? `Cliente #${e.id.slice(-4)}`}
                   </span>
                   <StatusBadge status="waiting" />
+                  {e.protegida && (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
+                      title="Esperou o tempo máximo: tem prioridade e não é ultrapassada por encaixe."
+                    >
+                      <ShieldCheck className="h-3 w-3" aria-hidden="true" />
+                      Prioridade garantida
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1">

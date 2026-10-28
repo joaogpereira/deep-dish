@@ -260,7 +260,7 @@ const Queue: React.FC = () => {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3">
           {[
-            { icon: Hash,  value: entry.posicao,      label: 'Posição', caption: undefined as string | undefined },
+            { icon: Hash,  value: entry.posicao,      label: 'Posição', caption: (entry.protegida ? 'garantida' : 'por chegada') as string | undefined },
             { icon: Clock, value: esperaValue,        label: 'min est.', caption: esperaCaption },
             { icon: Users, value: entry.qntd_pessoas, label: 'Pessoas', caption: undefined as string | undefined },
           ].map((stat, i) => (
@@ -279,6 +279,19 @@ const Queue: React.FC = () => {
 
         <p className="text-xs text-center text-muted-foreground">
           Sua posição é atualizada automaticamente.
+        </p>
+
+        {/* A posição é a da fila de espera, não uma promessa de ordem de chamada:
+            quem encaixa melhor numa mesa que vagou pode ser chamado antes — até
+            esperar o tempo máximo, quando a prioridade passa a ser garantida. */}
+        <p className="rounded-xl bg-secondary/60 px-4 py-3 text-xs leading-relaxed text-muted-foreground" data-testid="aviso-prioridade">
+          {entry.protegida
+            ? 'Você já esperou o tempo máximo: tem prioridade garantida e ninguém passa na sua frente quando houver mesa para o seu grupo.'
+            : `Esta posição é por ordem de chegada. Um grupo que combine melhor com uma mesa que vagar pode ser chamado antes de você${
+                typeof entry.protecao_em_minutos === 'number' && entry.protecao_em_minutos > 0
+                  ? `; sua vez fica garantida em cerca de ${entry.protecao_em_minutos} min.`
+                  : '. Depois de um tempo de espera, a sua vez fica garantida.'
+              }`}
         </p>
 
         <Button variant="outline" className="w-full min-h-[44px]" onClick={() => setCancelOpen(true)}>

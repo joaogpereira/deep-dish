@@ -196,6 +196,46 @@ class EstimativaEsperaServiceTest extends TestCase
         $this->assertSame(35, $r['espera_estimada_minutos']);
     }
 
+    /**
+     * Regressão da #170: a posição da amostra é a do RESTAURANTE (todas as filas
+     * abertas), a mesma que a tela passa a estimar — e não a do fila_id.
+     *
+     * Em cada semana há duas janelas de horário. A (1ª entrada) e B (na outra
+     * janela, 1 min depois, com A ainda esperando) formam as posições 1 e 2; C chega
+     * depois que os dois já saíram e volta a ser a posição 1. Contando por fila_id
+     * todos seriam "posição 1" e o estimador cairia no padrão fixo; contando sem
+     * descontar quem já saiu, C seria a posição 3 e a reta sairia torta.
+     */
+    public function test_posicao_do_historico_conta_as_filas_do_restaurante_e_desconta_quem_ja_saiu(): void
+    {
+        $slot = $this->slot('2026-08-22 20:00:00');
+
+        foreach (range(0, 11) as $semana) {
+            $inicio = $slot->copy()->subWeeks($semana);
+
+            $janelaA = Fila::factory()->for($this->restaurante)->create([
+                'horario_reserva' => $inicio->copy()->utc(),
+                'status' => Fila::STATUS_ENCERRADA,
+            ]);
+            $janelaB = Fila::factory()->for($this->restaurante)->create([
+                'horario_reserva' => $inicio->copy()->addHour()->utc(),
+                'status' => Fila::STATUS_ENCERRADA,
+            ]);
+
+            // espera = 10 + 5 x posicao (min)
+            $this->entrada($janelaA, $inicio, 15, ClienteFila::STATUS_SAIDA_ATENDIDO, 2);                       // pos 1, sai em +15
+            $this->entrada($janelaB, $inicio->copy()->addMinute(), 20, ClienteFila::STATUS_SAIDA_ATENDIDO, 2);  // pos 2, sai em +21
+            $this->entrada($janelaA, $inicio->copy()->addMinutes(30), 15, ClienteFila::STATUS_SAIDA_ATENDIDO, 2); // pos 1 de novo
+        }
+
+        $r = $this->estimativa->estimar($this->restaurante->id, 3, 2, $slot);
+
+        $this->assertSame(EstimativaEsperaService::NIVEL_ESPECIFICO, $r['nivel']);
+        $this->assertSame(36, $r['amostra']);
+        // 10 + 5 x 3
+        $this->assertSame(25, $r['espera_estimada_minutos']);
+    }
+
     // ─── Qualidade da amostra ────────────────────────────────
 
     public function test_desistentes_nao_puxam_a_estimativa_para_baixo(): void

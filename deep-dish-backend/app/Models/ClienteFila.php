@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -130,8 +131,88 @@ class ClienteFila extends Model
     }
 
     /**
-     * Posição atual na fila, contando apenas clientes ativos.
-     * Retorna null para quem já saiu — não existe "posição" de quem não está na fila.
+     * Entradas que disputam mesa neste restaurante: ativas, em qualquer fila
+     * aberta dele. Um restaurante pode ter várias filas abertas ao mesmo tempo
+     * (uma por janela de horário) e a chamada considera todas — a posição, a
+     * lista do painel e a promoção partem deste escopo para não divergirem.
+     */
+    public function scopeAguardandoNoRestaurante(Builder $query, string $restauranteId): Builder
+    {
+        return $query->ativas()->whereHas('fila', fn ($q) => $q
+            ->where('restaurante_id', $restauranteId)
+            ->where('status', Fila::STATUS_ABERTA)
+        );
+    }
+
+    /** Ordem de chegada, com o id como desempate. A ordem base da fila inteira. */
+    public function scopeEmOrdemDeChegada(Builder $query): Builder
+    {
+        return $query->orderBy('created_at')->orderBy('id');
+    }
+
+    /**
+     * Esperou tempo suficiente para ter prioridade absoluta (anti-starvation da
+     * #170). Entrada protegida é atendida antes de qualquer encaixe.
+     *
+     * Como a proteção depende só do instante de chegada, as protegidas são
+     * sempre as mais antigas: um prefixo da ordem de chegada.
+     */
+    public function estaProtegida(?CarbonInterface $agora = null): bool
+    {
+        if ($this->status_saida !== null || $this->created_at === null) {
+            return false;
+        }
+
+        $limite = ($agora ?? now())->copy()->subMinutes((int) config('fila.espera_protegida_minutos'));
+
+        return $this->created_at->lessThanOrEqualTo($limite);
+    }
+
+    public function getProtegidaAttribute(): bool
+    {
+        return $this->estaProtegida();
+    }
+
+    /**
+     * Minutos até a entrada virar protegida (0 se já é; null para quem saiu).
+     *
+     * É o que torna a posição honesta: enquanto não é protegida, a posição é a
+     * de chegada, mas um grupo que encaixe melhor numa mesa que vagou pode ser
+     * chamado antes. Este número diz até quando isso pode acontecer — depois dele
+     * a ordem de chamada deste cliente é garantida.
+     */
+    public function protecaoEmMinutos(?CarbonInterface $agora = null): ?int
+    {
+        if ($this->status_saida !== null || $this->created_at === null) {
+            return null;
+        }
+
+        $agora = $agora ?? now();
+        $protegidaEm = $this->created_at->copy()->addMinutes((int) config('fila.espera_protegida_minutos'));
+
+        return $protegidaEm->lessThanOrEqualTo($agora)
+            ? 0
+            : (int) ceil($agora->diffInSeconds($protegidaEm, true) / 60);
+    }
+
+    public function getProtecaoEmMinutosAttribute(): ?int
+    {
+        return $this->protecaoEmMinutos();
+    }
+
+    /**
+     * Posição na ordem de prioridade do RESTAURANTE: a ordem de chegada entre
+     * todas as filas abertas dele, que é a mesma ordem em que a chamada varre as
+     * entradas (FilaService::entradasAguardando).
+     *
+     * Antes contava só dentro do fila_id. Com mais de uma janela aberta, dois
+     * clientes apareciam como "1º" e a chamada olhava os dois de uma vez.
+     *
+     * É a posição na fila de espera, não uma promessa de ordem de chamada: quem
+     * não é protegido pode ser chamado antes de quem está à frente se encaixar
+     * melhor numa mesa que vagou. Por isso toda resposta traz junto 'protegida'
+     * (a ordem deste cliente é garantida) e 'protecao_em_minutos' (em quanto
+     * tempo passa a ser). Retorna null para quem já saiu.
      */
     public function getPosicaoAttribute(): ?int
     {
@@ -140,8 +221,7 @@ class ClienteFila extends Model
         }
 
         return 1 + (int) static::query()
-            ->ativas()
-            ->where('fila_id', $this->fila_id)
+            ->aguardandoNoRestaurante((string) $this->fila->restaurante_id)
             ->where(function (Builder $q) {
                 $q->where('created_at', '<', $this->created_at)
                     ->orWhere(function (Builder $q2) {

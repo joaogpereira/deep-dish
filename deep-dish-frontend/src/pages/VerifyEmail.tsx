@@ -3,6 +3,7 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { httpClient } from '@/services/httpClient';
 import { toast } from 'sonner';
+import { consumirDestino } from '@/lib/redirectAposLogin';
 import { MailCheck, MailX, Loader2 } from 'lucide-react';
 
 const BASE = import.meta.env.VITE_API_URL as string;
@@ -47,7 +48,10 @@ const VerifyEmail: React.FC = () => {
     })
       .then(res => (res.ok ? res.json() : null))
       .then((data: { email_verified_at?: string | null } | null) => {
-        if (data?.email_verified_at) navigate(dashboardHref, { replace: true });
+        if (data?.email_verified_at) {
+          const destino = tipo === 'restaurante' ? null : consumirDestino();
+          navigate(destino ?? dashboardHref, { replace: true });
+        }
       })
       .catch(() => {})
       .finally(() => setChecking(false));

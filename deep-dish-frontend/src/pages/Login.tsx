@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { Eye, EyeOff, Loader2, CheckCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
+import { consumirDestino } from '@/lib/redirectAposLogin';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -51,7 +52,8 @@ const Login: React.FC = () => {
     setServerError('');
     try {
       await login(values.email, values.password);
-      navigate('/app');
+      // Quem veio de um QR da fila (ou de qualquer rota protegida) volta para lá.
+      navigate(consumirDestino() ?? '/app', { replace: true });
     } catch (err) {
       setServerError(err instanceof Error ? err.message : 'Erro ao entrar. Tente novamente.');
     }

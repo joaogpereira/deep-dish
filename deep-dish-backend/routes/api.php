@@ -38,6 +38,13 @@ Route::get('/email/verify/{tipo}/{id}/{hash}', [App\Http\Controllers\Auth\EmailV
     ->name('email.verify')
     ->middleware('signed');
 
+// QR de entrada na fila — o navegador que leu o QR cai aqui; a assinatura é
+// validada no controller (ver FilaQrController::entrar).
+Route::get('/fila/qr/{id}', [App\Http\Controllers\FilaQrController::class, 'entrar'])
+    ->name('fila.qr')
+    ->where('id', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
+    ->middleware('throttle:60,1');
+
 Route::prefix('restaurantes')->group(function () {
     Route::get('/', [App\Http\Controllers\RestauranteController::class, 'index']);
     Route::get('/{id}', [App\Http\Controllers\RestauranteController::class, 'show'])
@@ -102,6 +109,9 @@ Route::prefix('restaurante')->middleware(['auth:restaurante', \App\Http\Middlewa
     Route::get('/fila', [App\Http\Controllers\FilaController::class, 'indexRestaurante']);
     Route::delete('/fila/{id}', [App\Http\Controllers\FilaController::class, 'removerRestaurante'])
         ->where('id', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
+
+    // QR de entrada na fila — restaurante
+    Route::get('/fila/qr', [App\Http\Controllers\FilaQrController::class, 'url']);
 
     // Mesas — restaurante
     Route::get('/mesas', [App\Http\Controllers\MesaController::class, 'index']);

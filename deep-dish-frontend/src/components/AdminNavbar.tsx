@@ -21,7 +21,7 @@ const AdminNavbar: React.FC = () => {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="fixed left-0 top-0 bottom-0 z-40 hidden w-60 flex-col bg-dark-surface text-dark-surface-foreground md:flex">
+      <aside className="fixed left-0 top-0 bottom-0 z-40 hidden w-60 flex-col bg-dark-surface text-dark-surface-foreground md:flex print:hidden">
         <div className="flex h-16 items-center gap-2.5 px-5 border-b border-white/[0.06]">
           <div className="h-8 w-8 rounded-lg overflow-hidden">
             <img src={logo} alt="Logo Deep Dish" className="h-full w-full object-cover" />
@@ -63,7 +63,7 @@ const AdminNavbar: React.FC = () => {
       </aside>
 
       {/* Mobile top bar */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-dark-surface text-dark-surface-foreground md:hidden border-b border-white/[0.06]">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-dark-surface text-dark-surface-foreground md:hidden border-b border-white/[0.06] print:hidden">
         <div className="flex h-14 items-center justify-between px-4">
           <span className="font-display text-lg font-bold">Deep Dish</span>
           <div className="flex items-center gap-1">
@@ -79,7 +79,7 @@ const AdminNavbar: React.FC = () => {
       </header>
 
       {/* Mobile bottom nav */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-dark-surface text-dark-surface-foreground md:hidden border-t border-white/[0.06] safe-area-bottom">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-dark-surface text-dark-surface-foreground md:hidden border-t border-white/[0.06] safe-area-bottom print:hidden">
         <div className="flex items-center justify-around py-1.5 px-2">
           {sideLinks.slice(0, 5).map(l => {
             const active = location.pathname === l.to;

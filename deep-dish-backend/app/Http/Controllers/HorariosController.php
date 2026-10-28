@@ -70,16 +70,21 @@ class HorariosController extends Controller
 
             $horariosFila = [];
             if ($tipo === null || $tipo === 'fila') {
-                foreach ($restaurante->filas as $fila) {
-                    foreach ($fila->clienteFilas->values() as $i => $clienteFila) {
-                        $horariosFila[] = [
-                            'horario_reserva' => $fila->horario_reserva?->format(\DateTimeInterface::ATOM),
-                            'horario_entrada' => $clienteFila->created_at->format(\DateTimeInterface::ATOM),
-                            'qntd_pessoas' => $clienteFila->qntd_pessoas,
-                            'posicao' => $i + 1, // relação já vem ativas() e ordenada
-                            'fila_id' => $fila->id,
-                        ];
-                    }
+                // Posição única do restaurante, na ordem de chegada entre todas as
+                // filas abertas — a mesma de ClienteFila::getPosicaoAttribute.
+                $entradas = $restaurante->filas
+                    ->flatMap(fn ($fila) => $fila->clienteFilas->each->setRelation('fila', $fila))
+                    ->sortBy([['created_at', 'asc'], ['id', 'asc']])
+                    ->values();
+
+                foreach ($entradas as $i => $clienteFila) {
+                    $horariosFila[] = [
+                        'horario_reserva' => $clienteFila->fila->horario_reserva?->format(\DateTimeInterface::ATOM),
+                        'horario_entrada' => $clienteFila->created_at->format(\DateTimeInterface::ATOM),
+                        'qntd_pessoas' => $clienteFila->qntd_pessoas,
+                        'posicao' => $i + 1,
+                        'fila_id' => $clienteFila->fila_id,
+                    ];
                 }
             }
 
