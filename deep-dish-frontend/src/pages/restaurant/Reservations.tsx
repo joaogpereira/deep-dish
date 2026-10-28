@@ -5,7 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Paginated, Reserva } from '@/types';
 import { reservationsService } from '@/services/reservations.service';
 import { ApiError } from '@/services/httpClient';
-import { Clock, Users, CalendarDays, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Clock, Users, CalendarDays, ChevronLeft, ChevronRight, Trash2, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatBRT } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -164,12 +164,21 @@ const Reservations: React.FC = () => {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-foreground">
-                        {r.cliente?.name ?? `Reserva #${id.slice(-4)}`}
+                      {/* A mesa e o titulo, nao o cliente: quem opera o salao decora
+                          numero de mesa, nao nome de quem reservou. Mesmas classes do
+                          card em Tables.tsx, que ja titula a mesa assim. */}
+                      <span className="font-display text-lg font-semibold text-foreground">
+                        {r.mesa ? `Mesa ${r.mesa.numero}` : `Reserva #${id.slice(-4)}`}
                       </span>
                       <StatusBadge status={r.status} />
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground flex-wrap">
+                      {r.cliente?.name && (
+                        <span className="flex items-center gap-1">
+                          <User className="h-3.5 w-3.5 shrink-0" />
+                          {r.cliente.name}
+                        </span>
+                      )}
                       <span className="flex items-center gap-1">
                         <CalendarDays className="h-3.5 w-3.5 shrink-0" />
                         {formatDate(r.horario_reserva)}
@@ -181,7 +190,7 @@ const Reservations: React.FC = () => {
                       {r.mesa && (
                         <span className="flex items-center gap-1">
                           <Users className="h-3.5 w-3.5 shrink-0" />
-                          Mesa {r.mesa.numero} · {r.party_size ?? r.mesa.capacidade}/{r.mesa.capacidade} pessoas
+                          {r.party_size ?? r.mesa.capacidade}/{r.mesa.capacidade} pessoas
                         </span>
                       )}
                     </div>

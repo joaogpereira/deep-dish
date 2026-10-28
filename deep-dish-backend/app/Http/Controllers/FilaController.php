@@ -109,22 +109,25 @@ class FilaController extends Controller
 
         // Posição calculada em memória: a lista já está ordenada e contém só ativos.
         // Usar ->append('posicao') aqui dispararia um COUNT por registro.
-        $entries->groupBy('fila_id')->each(function ($daFila) use ($restauranteId) {
-            $daFila->values()->each(function ($registro, $i) use ($restauranteId) {
-                $posicao = $i + 1;
-                $registro->setAttribute('posicao', $posicao);
+        //
+        // A numeração é CONTÍNUA sobre a lista toda. Antes havia um groupBy('fila_id')
+        // aqui, e como nasce uma fila por hora (Fila::janelaAtual()), o painel
+        // mostrava 1,2,3 e depois 1,2,3,4 — duas numerações para uma única fila de
+        // espera. A ordem de chamada sempre foi por restaurante, não por hora.
+        $entries->values()->each(function ($registro, $i) use ($restauranteId) {
+            $posicao = $i + 1;
+            $registro->setAttribute('posicao', $posicao);
 
-                $estimativa = $this->estimativaService->estimar(
-                    (string) $restauranteId,
-                    $posicao,
-                    (int) $registro->qntd_pessoas,
-                    $registro->fila->horario_reserva
-                );
+            $estimativa = $this->estimativaService->estimar(
+                (string) $restauranteId,
+                $posicao,
+                (int) $registro->qntd_pessoas,
+                $registro->fila->horario_reserva
+            );
 
-                foreach ($estimativa as $campo => $valor) {
-                    $registro->setAttribute($campo, $valor);
-                }
-            });
+            foreach ($estimativa as $campo => $valor) {
+                $registro->setAttribute($campo, $valor);
+            }
         });
 
         return response()->json($entries);
