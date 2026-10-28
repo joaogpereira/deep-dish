@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRealtime } from '@/hooks/useRealtime';
 import { Button } from '@/components/ui/button';
 import StatusBadge from '@/components/StatusBadge';
 import ConfirmModal from '@/components/ConfirmModal';
@@ -15,12 +17,10 @@ import { storageUrl } from '@/lib/storage';
 const formatDate = (iso: string) => formatBRT(iso, { day: '2-digit', month: 'long', year: 'numeric' });
 const formatTime = (iso: string) => formatBRT(iso, { hour: '2-digit', minute: '2-digit' });
 
-const ACTIVE_STATUSES = ['confirmada', 'em_andamento'] as const;
-const POLL_INTERVAL_MS = 30_000;
-
 const ReservationDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [reservation, setReservation] = useState<Reserva | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -45,22 +45,21 @@ const ReservationDetail: React.FC = () => {
     return () => { cancelled = true; };
   }, [id]);
 
-  // Polling silencioso enquanto reserva está ativa
-  useEffect(() => {
-    if (!id || !reservation) return;
-    const isActive = ACTIVE_STATUSES.includes(reservation.status as typeof ACTIVE_STATUSES[number]);
-    if (!isActive) return;
+  // Tempo real, no lugar do polling silencioso: o backend avisa quando a reserva
+  // muda de estado (check-in, liberação, cancelamento, expiração).
+  const recarregar = useCallback(async () => {
+    if (!id) return;
+    try {
+      const data = await reservationsService.getReservationById(id);
+      if (data) setReservation(data);
+    } catch { /* silencioso */ }
+  }, [id]);
 
-    let cancelled = false;
-    const interval = setInterval(async () => {
-      try {
-        const data = await reservationsService.getReservationById(id);
-        if (!cancelled && data) setReservation(data);
-      } catch { /* silencioso */ }
-    }, POLL_INTERVAL_MS);
-
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [id, reservation?.status]);
+  useRealtime(
+    user?.id ? `cliente.${user.id}` : undefined,
+    { 'reserva.atualizada': recarregar },
+    recarregar
+  );
 
   const handleCancel = async () => {
     if (!id) return;
@@ -98,7 +97,7 @@ const ReservationDetail: React.FC = () => {
     <div className="max-w-lg mx-auto space-y-6 animate-fade-in">
       <button
         onClick={() => navigate(-1)}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[36px]"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[44px]"
       >
         <ArrowLeft className="h-4 w-4" />
         Voltar

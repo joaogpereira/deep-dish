@@ -1,8 +1,17 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { NivelEstimativa } from "@/types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+/**
+ * 'especifico'/'amplo' vêm de regressão sobre histórico real;
+ * 'padrao' é o fallback do EstimativaEsperaService sem amostra suficiente.
+ */
+export function isEstimativaHistorica(nivel?: NivelEstimativa): boolean {
+  return nivel === 'especifico' || nivel === 'amplo';
 }
 
 // Brasil não adota horário de verão desde 2019 — UTC-3 fixo.

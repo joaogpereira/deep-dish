@@ -8,31 +8,26 @@ use Illuminate\Support\Facades\DB;
 
 class RestauranteService
 {
-    public function __construct(private RestauranteRepository $repo)
-    {
-    }
+    public function __construct(private RestauranteRepository $repo) {}
 
     public function register(array $validated): array
     {
         return DB::transaction(function () use ($validated) {
             $validated['tipo_usuario'] = 'restaurante';
             $restaurante = $this->repo->create($validated);
-            $token       = auth('restaurante')->login($restaurante);
+            $token = auth('restaurante')->login($restaurante);
 
             $restaurante->sendEmailVerificationNotification();
 
             return [
                 'restaurante' => $restaurante,
-                'token'       => $token,
+                'token' => $token,
             ];
         });
     }
 
     /**
      * Busca um restaurante pelo ID.
-     *
-     * @param  string  $id
-     * @return Restaurante|null
      */
     public function findById(string $id): ?Restaurante
     {

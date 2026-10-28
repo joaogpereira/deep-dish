@@ -21,9 +21,9 @@ class FuncionarioController extends Controller
     public function index(Request $request): JsonResponse
     {
         $restauranteId = auth('restaurante')->id();
-        $perPage       = min((int) $request->query('per_page', 15), 50);
-        $status        = $request->query('status');  // 'ativo' | 'inativo' | null
-        $cargo         = $request->query('cargo');
+        $perPage = min((int) $request->query('per_page', 15), 50);
+        $status = $request->query('status');  // 'ativo' | 'inativo' | null
+        $cargo = $request->query('cargo');
 
         $query = Funcionario::where('restaurante_id', $restauranteId);
 
@@ -43,15 +43,15 @@ class FuncionarioController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name'            => ['required', 'string', 'max:255'],
-            'cargo'           => ['required', 'string', 'max:255'],
-            'cpf'             => ['required', 'string', 'max:14'],
-            'telefone'        => ['required', 'string', 'max:20'],
+            'name' => ['required', 'string', 'max:255'],
+            'cargo' => ['required', 'string', 'max:255'],
+            'cpf' => ['required', 'string', 'max:14'],
+            'telefone' => ['required', 'string', 'max:20'],
             'data_nascimento' => ['required', 'date'],
-            'horario'         => ['required', 'string', 'max:255'],
-            'email'           => ['nullable', 'email', 'max:255'],
-            'observacoes'     => ['nullable', 'string'],
-            'ativo'           => ['boolean'],
+            'horario' => ['required', 'string', 'max:255'],
+            'email' => ['nullable', 'email', 'max:255'],
+            'observacoes' => ['nullable', 'string'],
+            'ativo' => ['boolean'],
         ]);
 
         $funcionario = Funcionario::create([
@@ -69,16 +69,16 @@ class FuncionarioController extends Controller
             ->firstOrFail();
 
         $validated = $request->validate([
-            'name'            => ['sometimes', 'string', 'max:255'],
-            'cargo'           => ['sometimes', 'string', 'max:255'],
-            'cpf'             => ['nullable', 'string', 'max:14'],
-            'telefone'        => ['nullable', 'string', 'max:20'],
-            'email'           => ['nullable', 'email', 'max:255'],
+            'name' => ['sometimes', 'string', 'max:255'],
+            'cargo' => ['sometimes', 'string', 'max:255'],
+            'cpf' => ['nullable', 'string', 'max:14'],
+            'telefone' => ['nullable', 'string', 'max:20'],
+            'email' => ['nullable', 'email', 'max:255'],
             'data_nascimento' => ['nullable', 'date'],
-            'horario'         => ['nullable', 'string', 'max:255'],
-            'observacoes'          => ['nullable', 'string'],
-            'ativo'                => ['boolean'],
-            'motivo_afastamento'   => ['nullable', 'string', 'max:255'],
+            'horario' => ['nullable', 'string', 'max:255'],
+            'observacoes' => ['nullable', 'string'],
+            'ativo' => ['boolean'],
+            'motivo_afastamento' => ['nullable', 'string', 'max:255'],
         ]);
 
         // Ao reativar, limpa o motivo de afastamento

@@ -5,6 +5,8 @@ export interface DashboardStats {
   reservations_today: number;
   tables_available: number;
   total_tables: number;
+  /** 0-100, calculado no backend; null quando o restaurante não tem mesa. */
+  occupancy_percent: number | null;
 }
 
 export const dashboardService = {

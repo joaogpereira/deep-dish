@@ -1,5 +1,6 @@
 <?php
-//Essa página define as configurações do nosso middleware como ele vai ser autenticado.
+
+// Essa página define as configurações do nosso middleware como ele vai ser autenticado.
 return [
 
     /*
@@ -36,23 +37,23 @@ return [
     */
 
     'guards' => [
-    // ✅ JWT para cliente
-    'cliente' => [
-        'driver' => 'jwt',
-        'provider' => 'cliente',
-    ],
+        // ✅ JWT para cliente
+        'cliente' => [
+            'driver' => 'jwt',
+            'provider' => 'cliente',
+        ],
 
-    // ✅ JWT API (mesmo provider que cliente — tokens emitidos no login de cliente)
-    'api' => [
-        'driver' => 'jwt',
-        'provider' => 'cliente',
-    ],
+        // ✅ JWT API (mesmo provider que cliente — tokens emitidos no login de cliente)
+        'api' => [
+            'driver' => 'jwt',
+            'provider' => 'cliente',
+        ],
 
-    // ✅ JWT para restaurante
-    'restaurante' => [
-        'driver' => 'jwt',
-        'provider' => 'restaurante',
-    ],
+        // ✅ JWT para restaurante
+        'restaurante' => [
+            'driver' => 'jwt',
+            'provider' => 'restaurante',
+        ],
     ],
 
     /*
@@ -103,20 +104,20 @@ return [
     */
 
     'passwords' => [
-    'clientes' => [
-        'provider' => 'cliente',
-        'table' => 'password_reset_tokens',
-        'expire' => 60,
-        'throttle' => 60,
-    ],
+        'clientes' => [
+            'provider' => 'cliente',
+            'table' => 'password_reset_tokens',
+            'expire' => 60,
+            'throttle' => 60,
+        ],
 
-    'restaurantes' => [
-    'provider' => 'restaurante',
-    'table' => 'password_reset_tokens',
-    'expire' => 60,
-    'throttle' => 60,
+        'restaurantes' => [
+            'provider' => 'restaurante',
+            'table' => 'password_reset_tokens',
+            'expire' => 60,
+            'throttle' => 60,
+        ],
     ],
-],
 
     /*
     |--------------------------------------------------------------------------

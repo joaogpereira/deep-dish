@@ -35,4 +35,3 @@ class VerifyJwtTokenVersion
         return $next($request);
     }
 }
-

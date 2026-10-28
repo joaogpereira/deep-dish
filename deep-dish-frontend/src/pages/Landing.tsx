@@ -623,7 +623,7 @@ const Landing: React.FC = () => {
       <footer className="border-t border-border/60 bg-card py-10">
         <div className="container mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
           <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-lg bg-background p-1.5 flex items-center justify-center">
+            <div className="h-9 w-9 rounded-lg bg-white p-1.5 flex items-center justify-center">
               <img src={logo} alt="" className="max-h-full max-w-full object-contain" />
             </div>
             <span className="font-display font-semibold text-foreground">Deep Dish</span>

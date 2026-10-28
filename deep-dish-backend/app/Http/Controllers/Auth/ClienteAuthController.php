@@ -9,9 +9,7 @@ use Illuminate\Support\Facades\Validator;
 
 class ClienteAuthController extends Controller
 {
-    public function __construct(private ClienteService $service)
-    {
-    }
+    public function __construct(private ClienteService $service) {}
 
     public function register(Request $request)
     {
@@ -53,27 +51,27 @@ class ClienteAuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'email' => 'required|email',
-            'password' => 'required|string|min:6'
+            'password' => 'required|string|min:6',
         ]);
-    
+
         if ($validator->fails()) {
             return response()->json([
-                'error' => $validator->errors()
+                'error' => $validator->errors(),
             ], 422);
         }
-    
+
         $credentials = $request->only('email', 'password');
-    
+
         if (! $token = auth('api')->attempt($credentials)) {
             return response()->json([
-                'error' => 'Email ou senha inválidos'
+                'error' => 'Email ou senha inválidos',
             ], 401);
         }
 
         $user = auth('api')->user();
-        if (!$user->hasVerifiedEmail()) {
-            $cacheKey = 'verify_sent_cliente_' . $user->id;
-            if (!\Cache::has($cacheKey)) {
+        if (! $user->hasVerifiedEmail()) {
+            $cacheKey = 'verify_sent_cliente_'.$user->id;
+            if (! \Cache::has($cacheKey)) {
                 $user->sendEmailVerificationNotification();
                 \Cache::put($cacheKey, true, now()->addMinutes(2));
             }
@@ -82,7 +80,7 @@ class ClienteAuthController extends Controller
         return response()->json([
             'message' => 'Login realizado com sucesso',
             'type' => 'cliente',
-            'token' => $token
+            'token' => $token,
         ]);
     }
 
@@ -100,14 +98,14 @@ class ClienteAuthController extends Controller
         }
 
         return response()->json([
-            'message' => 'Logout realizado com sucesso'
+            'message' => 'Logout realizado com sucesso',
         ]);
     }
 
     public function refresh()
     {
         return response()->json([
-            'token' => auth('api')->refresh()
+            'token' => auth('api')->refresh(),
         ]);
     }
 }

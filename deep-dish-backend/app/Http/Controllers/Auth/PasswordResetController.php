@@ -29,9 +29,9 @@ class PasswordResetController extends Controller
     public function resetPassword(Request $request, string $tipo): JsonResponse
     {
         $request->validate([
-            'token'                 => 'required|string',
-            'email'                 => 'required|email',
-            'password'              => 'required|string|min:6|confirmed',
+            'token' => 'required|string',
+            'email' => 'required|email',
+            'password' => 'required|string|min:6|confirmed',
             'password_confirmation' => 'required|string',
         ]);
 
@@ -41,7 +41,7 @@ class PasswordResetController extends Controller
             $request->only('email', 'password', 'password_confirmation', 'token'),
             function ($user, $password) {
                 $user->forceFill(['password' => $password])->save();
-                if (!$user->hasVerifiedEmail()) {
+                if (! $user->hasVerifiedEmail()) {
                     $user->markEmailAsVerified();
                 }
                 $user->increment('token_version');

@@ -40,7 +40,7 @@ const Restaurants: React.FC = () => {
       <div className="flex items-center gap-3">
         <button
           onClick={() => navigate(-1)}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[36px]"
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[44px]"
         >
           <ChevronLeft className="h-4 w-4" />
           Voltar

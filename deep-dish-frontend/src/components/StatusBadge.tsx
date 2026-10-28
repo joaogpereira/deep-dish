@@ -4,7 +4,7 @@ type StatusType =
   | 'waiting' | 'called' | 'seated' | 'cancelled' | 'no_show'
   | 'pending' | 'confirmed' | 'completed'
   | 'available' | 'occupied' | 'reserved' | 'inactive'
-  | 'livre' | 'reservada' | 'ocupada' | 'bloqueada'
+  | 'livre' | 'reservada' | 'ocupada' | 'bloqueada' | 'aguardando_limpeza' | 'em_limpeza'
   | 'confirmada' | 'em_andamento' | 'cancelada' | 'liberada' | 'expirada';
 
 const statusConfig: Record<StatusType, { label: string; className: string; dot?: string }> = {
@@ -24,6 +24,10 @@ const statusConfig: Record<StatusType, { label: string; className: string; dot?:
   reservada: { label: 'Reservada', className: 'bg-amber-500/10 text-amber-700 dark:text-amber-400', dot: 'bg-amber-500' },
   ocupada:   { label: 'Ocupada', className: 'bg-primary/10 text-primary', dot: 'bg-primary' },
   bloqueada: { label: 'Bloqueada', className: 'bg-muted text-muted-foreground' },
+  // Aguardando e espera parada; em limpeza esta acontecendo agora, por isso o pulse,
+  // como em 'called' e 'em_andamento'.
+  aguardando_limpeza: { label: 'Aguardando limpeza', className: 'bg-orange-500/10 text-orange-700 dark:text-orange-400', dot: 'bg-orange-500' },
+  em_limpeza: { label: 'Em limpeza', className: 'bg-sky-500/10 text-sky-700 dark:text-sky-400', dot: 'bg-sky-500 animate-pulse-soft' },
   confirmada:    { label: 'Aguardando check-in', className: 'bg-amber-500/10 text-amber-700 dark:text-amber-400', dot: 'bg-amber-500' },
   em_andamento:  { label: 'Em andamento', className: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400', dot: 'bg-emerald-500 animate-pulse-soft' },
   cancelada:     { label: 'Cancelada', className: 'bg-muted text-muted-foreground line-through' },

@@ -17,17 +17,16 @@ return new class extends Migration
             $table->id();
             // campo de nome do tipo string
             $table->string('name');
-            //campo de email do tipo string e único
+            // campo de email do tipo string e único
             $table->string('email')->unique();
-            //campo de cpf do tipo string e único
+            // campo de cpf do tipo string e único
             $table->string('cpf')->unique();
-            //campo de senha do tipo string
+            // campo de senha do tipo string
             $table->string('password');
             // campo de Criado e atualizado do tipo timestamp
             $table->timestamps();
         });
     }
-
 
     /**
      * Função para reverter a migração caso seja necessário.

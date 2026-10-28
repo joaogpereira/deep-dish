@@ -32,8 +32,20 @@ export interface Restaurante {
   price_range?: number | null;
   reservations_enabled?: boolean;
   description?: string | null;
-  // Campo para implementação futura
-  averageWaitTime?: number;
+}
+
+// Nível de confiança da estimativa de espera (EstimativaEsperaService).
+// 'especifico'/'amplo' = baseado em histórico real; 'padrao' = fallback sem dado suficiente.
+export type NivelEstimativa = 'especifico' | 'amplo' | 'padrao';
+
+// Retorno de EstimativaEsperaService::estimar(), devolvido por
+// POST /fila, GET /fila/posicao e GET /fila/estimativa.
+export interface EstimativaEspera {
+  espera_estimada_minutos: number;
+  espera_estimada_segundos: number;
+  nivel: NivelEstimativa;
+  amostra: number;
+  posicao: number;
 }
 
 export type User = Cliente | Restaurante;
@@ -44,7 +56,11 @@ export interface AuthSession {
 }
 
 // Mesa conforme retornada pelo backend (máquina de estados: livre → reservada → ocupada → livre)
-export type MesaStatus = 'livre' | 'reservada' | 'ocupada' | 'bloqueada';
+// 'aguardando_limpeza' e 'em_limpeza' sao os estados entre o cliente sair e a mesa
+// estar pronta (#171). A mesa nao recebe ninguem neles, mas vai voltar.
+export type MesaStatus =
+  | 'livre' | 'reservada' | 'ocupada' | 'bloqueada'
+  | 'aguardando_limpeza' | 'em_limpeza';
 
 export interface Mesa {
   id: number | string;
@@ -91,13 +107,19 @@ export interface Reserva {
   cliente?: Cliente;
 }
 
-// Entrada na fila conforme retornada pelo backend (ClienteFila + relações)
-export interface ClienteFilaEntry {
+// Entrada na fila conforme retornada pelo backend (ClienteFila + relações).
+// POST /fila e GET /fila/posicao acrescentam os campos de EstimativaEspera —
+// opcionais aqui porque a tela não deve inventar número quando ainda não chegaram.
+export interface ClienteFilaEntry extends Partial<EstimativaEspera> {
   id: string;
   fila_id: string;
   cliente_id: string;
   qntd_pessoas: number;
   posicao: number;
+  // Esperou o limite de espera protegida: tem prioridade absoluta, nenhum encaixe a ultrapassa.
+  protegida?: boolean;
+  // Minutos até a proteção (0 = já protegida). Até lá a posição é por chegada, não garantida.
+  protecao_em_minutos?: number | null;
   created_at: string;
   updated_at: string;
   fila?: {
@@ -112,6 +134,14 @@ export interface ClienteFilaEntry {
     email: string;
     telefone?: string;
   };
+}
+
+// GET /restaurante/fila/qr — URL assinada e permanente do QR de entrada na fila.
+export interface FilaQrInfo {
+  restaurante_id: string;
+  nome: string;
+  fila_ativa: boolean;
+  url: string;
 }
 
 export interface QueueEntry {

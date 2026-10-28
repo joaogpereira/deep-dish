@@ -8,6 +8,8 @@ import { ApiError } from '@/services/httpClient';
 import { Clock, Users, CalendarDays, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatBRT } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRealtime } from '@/hooks/useRealtime';
 
 const formatDate = (iso: string) => formatBRT(iso, { day: '2-digit', month: '2-digit' });
 const formatTime = (iso: string) => formatBRT(iso, { hour: '2-digit', minute: '2-digit' });
@@ -17,6 +19,7 @@ type StatusGroup = 'all' | 'active' | 'finished';
 const EMPTY_PAGE: Paginated<Reserva> = { data: [], current_page: 1, last_page: 1, per_page: 10, total: 0 };
 
 const Reservations: React.FC = () => {
+  const { user }                        = useAuth();
   const [pageData, setPageData]         = useState<Paginated<Reserva>>(EMPTY_PAGE);
   const [page, setPage]                 = useState(1);
   const [statusGroup, setStatusGroup]   = useState<StatusGroup>('all');
@@ -25,8 +28,8 @@ const Reservations: React.FC = () => {
   const [liberandoId, setLiberandoId]   = useState<string | null>(null);
   const [deletingId, setDeletingId]     = useState<string | null>(null);
 
-  const fetchPage = useCallback(async (p: number, group: StatusGroup) => {
-    setLoading(true);
+  const fetchPage = useCallback(async (p: number, group: StatusGroup, silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params = {
         page: p,
@@ -36,14 +39,29 @@ const Reservations: React.FC = () => {
       const data = await reservationsService.listRestaurantReservations(params);
       setPageData(data);
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Erro ao carregar reservas';
-      toast.error(msg);
+      if (!silent) {
+        const msg = err instanceof ApiError ? err.message : 'Erro ao carregar reservas';
+        toast.error(msg);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => { fetchPage(page, statusGroup); }, [fetchPage, page, statusGroup]);
+
+  // Atualização ao vivo: check-in e liberação feitos noutro dispositivo do salão
+  // aparecem aqui sem F5. Silencioso, para não piscar o skeleton a cada evento.
+  const recarregar = useCallback(
+    () => { fetchPage(page, statusGroup, true); },
+    [fetchPage, page, statusGroup]
+  );
+
+  useRealtime(
+    user?.id ? `restaurante.${user.id}` : undefined,
+    { 'operacao.atualizada': recarregar },
+    recarregar
+  );
 
   const handleGroupChange = (group: StatusGroup) => {
     setStatusGroup(group);

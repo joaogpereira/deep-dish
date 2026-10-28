@@ -15,6 +15,7 @@ return new class extends Migration
             $table->integer('position')->default(0);
         });
     }
+
     /**
      * Reverse the migrations.
      */

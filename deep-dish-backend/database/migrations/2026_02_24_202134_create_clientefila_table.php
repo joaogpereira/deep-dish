@@ -16,7 +16,7 @@ return new class extends Migration
             $table->ForeignId('fila_id')->constrained('fila')->onDelete('cascade');
             $table->ForeignId('cliente_id')->constrained('cliente')->onDelete('cascade');
             $table->integer('qntd_pessoas')->default(1);
-            //O creadet_at vai servir para saber o lugar na fila.
+            // O creadet_at vai servir para saber o lugar na fila.
             $table->timestamps();
         });
     }

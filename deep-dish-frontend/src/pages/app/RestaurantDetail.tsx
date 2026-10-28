@@ -8,13 +8,14 @@ import StatusBadge from '@/components/StatusBadge';
 import { restaurantsService } from '@/services/restaurants.service';
 import { queueService } from '@/services/queue.service';
 import { ApiError } from '@/services/httpClient';
-import { Restaurante, Mesa } from '@/types';
+import { Restaurante, Mesa, EstimativaEspera } from '@/types';
 import { ArrowLeft, MapPin, Clock, Phone, Star, Users, ListOrdered } from 'lucide-react';
-import { hojeEmBRT, toISOBRT } from '@/lib/utils';
+import { hojeEmBRT, toISOBRT, isEstimativaHistorica } from '@/lib/utils';
 import { storageUrl } from '@/lib/storage';
 import { getTipoLabel } from '@/constants/tipos';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFilaAtual } from '@/hooks/useFilaAtual';
 
 interface PublicStaff { name: string; cargo: string; horario?: string | null; }
 
@@ -35,17 +36,11 @@ const RestaurantDetail: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>(hojeEmBRT());
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [joiningQueue, setJoiningQueue] = useState(false);
+  const [estimativa, setEstimativa] = useState<EstimativaEspera | null>(null);
 
-  // Verifica se o cliente logado já está na fila deste restaurante (pelo localStorage)
-  const jaEmFilaNesteRestaurante = (() => {
-    try {
-      const saved = localStorage.getItem('deepdish_fila');
-      if (!saved) return false;
-      const state = JSON.parse(saved);
-      return state?.entry?.fila?.restaurante_id === id
-        && state?.clienteId === user?.id;
-    } catch { return false; }
-  })();
+  // O cliente logado já está na fila deste restaurante?
+  const { fila } = useFilaAtual();
+  const jaEmFilaNesteRestaurante = fila?.entry.fila?.restaurante_id === id;
 
   // Carrega dados do restaurante
   useEffect(() => {
@@ -120,13 +115,31 @@ const RestaurantDetail: React.FC = () => {
 
   const horarioReserva = selectedDate && selectedTime ? toISOBRT(selectedDate, selectedTime) : '';
 
+  // Estimativa de espera "se eu entrasse agora" — antes de decidir entrar na fila.
+  // Sem horário: a fila é sempre a de agora, e é o servidor que define a janela.
+  useEffect(() => {
+    if (!id || !restaurant?.fila_ativa) {
+      setEstimativa(null);
+      return;
+    }
+    let cancelled = false;
+
+    queueService.consultarEstimativa({
+      restaurante_id: id,
+      qntd_pessoas: partySizeNum,
+    })
+      .then(data => { if (!cancelled) setEstimativa(data); })
+      .catch(() => { if (!cancelled) setEstimativa(null); });
+
+    return () => { cancelled = true; };
+  }, [id, restaurant?.fila_ativa, partySizeNum]);
+
   const handleQueue = async () => {
-    if (!id || !horarioReserva) return;
+    if (!id) return;
     setJoiningQueue(true);
     try {
       const result = await queueService.joinQueue({
         restaurante_id: id,
-        horario_reserva: horarioReserva,
         qntd_pessoas: partySizeNum,
       });
       navigate('/app/queue', {
@@ -134,7 +147,8 @@ const RestaurantDetail: React.FC = () => {
           entry:           result.data,
           restaurantName:  restaurant?.name,
           restaurantImage: restaurant?.imagem_url,
-          horarioReserva,
+          // A janela vem do servidor: é ela que identifica a fila nas consultas.
+          horarioReserva:  result.data.fila?.horario_reserva ?? '',
           clienteId:       user?.id,
         },
       });
@@ -183,7 +197,7 @@ const RestaurantDetail: React.FC = () => {
     <div className="space-y-6 animate-fade-in">
       <button
         onClick={() => navigate(-1)}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[36px]"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[44px]"
       >
         <ArrowLeft className="h-4 w-4" />
         Voltar
@@ -327,6 +341,7 @@ const RestaurantDetail: React.FC = () => {
                   <Label className="text-xs text-muted-foreground">Quantas pessoas?</Label>
                   <Input
                     type="number"
+                    inputMode="numeric"
                     min="1"
                     max="20"
                     value={partySize}
@@ -349,7 +364,7 @@ const RestaurantDetail: React.FC = () => {
                     </p>
                     {!!restaurant.fila_ativa && (
                       <p className="text-xs text-muted-foreground">
-                        Use o card de fila de espera ao lado para garantir seu lugar.
+                        Use a fila de espera para garantir seu lugar.
                       </p>
                     )}
                   </div>
@@ -413,36 +428,63 @@ const RestaurantDetail: React.FC = () => {
               </div>
               <p className="text-xs text-muted-foreground">
                 {restaurant.tamanho_fila_atual ?? 0} {restaurant.tamanho_fila_atual === 1 ? 'pessoa' : 'pessoas'} aguardando
-                {restaurant.averageWaitTime ? ` · ~${restaurant.averageWaitTime} min` : ''}
               </p>
+              {estimativa && (
+                <p className="text-xs text-muted-foreground">
+                  Espera estimada:{' '}
+                  {isEstimativaHistorica(estimativa.nivel)
+                    ? `~${estimativa.espera_estimada_minutos} min`
+                    : `${estimativa.espera_estimada_minutos} min`}
+                  {!isEstimativaHistorica(estimativa.nivel) && (
+                    <span className="block text-[11px] italic text-muted-foreground/70">
+                      Estimativa aproximada
+                    </span>
+                  )}
+                </p>
+              )}
               {jaEmFilaNesteRestaurante ? (
                 <p className="text-xs text-primary font-medium">
                   Você já está na fila.{' '}
-                  <button className="underline" onClick={() => navigate('/app/queue')}>
+                  <button className="underline min-h-[44px]" onClick={() => navigate('/app/queue')}>
                     Ver posição
                   </button>
                 </p>
-              ) : !horarioReserva ? (
-                <p className="text-xs text-muted-foreground italic">
-                  Selecione data e horário para entrar na fila.
-                </p>
-              ) : horarioNoPassado || horarioForaDoFuncionamento ? (
-                <p className="text-xs text-muted-foreground italic">
-                  Selecione um horário válido para entrar na fila.
-                </p>
-              ) : mesas.length > 0 && !loadingMesas ? (
+              ) : restaurant.reservations_enabled && mesas.length > 0 && !loadingMesas ? (
+                // Só faz sentido mandar reservar quando a reserva existe nesta tela.
                 <p className="text-xs text-muted-foreground italic">
                   Há mesas disponíveis — faça uma reserva acima.
                 </p>
               ) : (
-                <Button
-                  onClick={handleQueue}
-                  disabled={joiningQueue || loadingMesas}
-                  className="w-full min-h-[40px]"
-                  size="sm"
-                >
-                  {joiningQueue ? 'Entrando...' : 'Entrar na fila'}
-                </Button>
+                <>
+                  {/* Sem este campo toda entrada na fila ia com 2 pessoas — o valor
+                      inicial do estado — porque o unico input de quantidade vivia no
+                      card de reservas, atras de reservations_enabled. A alocacao de
+                      mesa (#169) decide pelo tamanho do grupo: com todo mundo valendo
+                      2, nao havia encaixe para acertar. */}
+                  <div>
+                    <Label htmlFor="fila-pessoas" className="text-xs text-muted-foreground">
+                      Quantas pessoas?
+                    </Label>
+                    <Input
+                      id="fila-pessoas"
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      max="20"
+                      value={partySize}
+                      onChange={e => setPartySize(e.target.value)}
+                      className="mt-1 w-24"
+                    />
+                  </div>
+                  <Button
+                    onClick={handleQueue}
+                    disabled={joiningQueue || loadingMesas}
+                    className="w-full min-h-[44px]"
+                    size="sm"
+                  >
+                    {joiningQueue ? 'Entrando...' : 'Entrar na fila'}
+                  </Button>
+                </>
               )}
             </div>
           </div>

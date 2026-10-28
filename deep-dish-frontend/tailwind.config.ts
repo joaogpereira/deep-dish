@@ -1,7 +1,11 @@
 import type { Config } from "tailwindcss";
+import tailwindcssAnimate from "tailwindcss-animate";
+import containerQueries from "@tailwindcss/container-queries";
 
 export default {
   darkMode: ["class"],
+  // hover: só em dispositivo com mouse — no toque o estado grudava após o tap.
+  future: { hoverOnlyWhenSupported: true },
   content: [
     "./pages/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
@@ -161,8 +165,5 @@ export default {
       },
     },
   },
-  plugins: [
-    require("tailwindcss-animate"),
-    require("@tailwindcss/container-queries"),
-  ],
+  plugins: [tailwindcssAnimate, containerQueries],
 } satisfies Config;

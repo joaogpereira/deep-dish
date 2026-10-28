@@ -20,11 +20,11 @@ class EmailVerificationController extends Controller
             ? Restaurante::find($id)
             : Cliente::find($id);
 
-        if (!$model || !hash_equals(sha1($model->getEmailForVerification()), (string) $hash)) {
+        if (! $model || ! hash_equals(sha1($model->getEmailForVerification()), (string) $hash)) {
             return redirect("{$frontendUrl}/verify-email?error=invalid");
         }
 
-        if (!$model->hasVerifiedEmail()) {
+        if (! $model->hasVerifiedEmail()) {
             $model->markEmailAsVerified();
         }
 
@@ -39,7 +39,7 @@ class EmailVerificationController extends Controller
             ? auth('restaurante')->user()
             : auth('api')->user();
 
-        if (!$user) {
+        if (! $user) {
             return response()->json(['message' => 'Não autenticado.'], 401);
         }
 

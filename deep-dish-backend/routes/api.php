@@ -13,19 +13,24 @@ Route::get('/health', function () {
 Route::get('/horarios', [App\Http\Controllers\HorariosController::class, 'show']);
 Route::get('/restaurantes/{restaurante}/horarios', [App\Http\Controllers\HorariosController::class, 'show']);
 
-//Definindo as rotas publicas.
+// Definindo as rotas publicas.
+// Portas de entrada: são as que um atacante martela. O login limita tentativa de
+// senha; o cadastro limita criação em massa de conta — que, de quebra, dispara um
+// e-mail de verificação por conta criada e queimaria a cota do SMTP. O
+// reset-password limita chute de token: é ele que consome o token do e-mail, e
+// acertar um token vale uma conta inteira sem precisar da senha.
 Route::prefix('cliente')->group(function () {
-    Route::post('/register',        [App\Http\Controllers\Auth\ClienteAuthController::class,  'register']);
-    Route::post('/login',           [App\Http\Controllers\Auth\ClienteAuthController::class,  'login']);
+    Route::post('/register', [App\Http\Controllers\Auth\ClienteAuthController::class,  'register'])->middleware('throttle:3,10');
+    Route::post('/login', [App\Http\Controllers\Auth\ClienteAuthController::class,  'login'])->middleware('throttle:5,1');
     Route::post('/forgot-password', [App\Http\Controllers\Auth\PasswordResetController::class, 'forgotPassword'])->defaults('tipo', 'cliente')->middleware('throttle:5,1');
-    Route::post('/reset-password',  [App\Http\Controllers\Auth\PasswordResetController::class, 'resetPassword'])->defaults('tipo', 'cliente');
+    Route::post('/reset-password', [App\Http\Controllers\Auth\PasswordResetController::class, 'resetPassword'])->defaults('tipo', 'cliente')->middleware('throttle:5,1');
 });
 
 Route::prefix('restaurante')->group(function () {
-    Route::post('/register',        [App\Http\Controllers\Auth\RestauranteAuthController::class, 'register']);
-    Route::post('/login',           [App\Http\Controllers\Auth\RestauranteAuthController::class, 'login']);
+    Route::post('/register', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'register'])->middleware('throttle:3,10');
+    Route::post('/login', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'login'])->middleware('throttle:5,1');
     Route::post('/forgot-password', [App\Http\Controllers\Auth\PasswordResetController::class,   'forgotPassword'])->defaults('tipo', 'restaurante')->middleware('throttle:5,1');
-    Route::post('/reset-password',  [App\Http\Controllers\Auth\PasswordResetController::class,   'resetPassword'])->defaults('tipo', 'restaurante');
+    Route::post('/reset-password', [App\Http\Controllers\Auth\PasswordResetController::class,   'resetPassword'])->defaults('tipo', 'restaurante')->middleware('throttle:5,1');
 });
 
 // Verificação de e-mail — link enviado por e-mail (signed URL)
@@ -33,24 +38,31 @@ Route::get('/email/verify/{tipo}/{id}/{hash}', [App\Http\Controllers\Auth\EmailV
     ->name('email.verify')
     ->middleware('signed');
 
+// QR de entrada na fila — o navegador que leu o QR cai aqui; a assinatura é
+// validada no controller (ver FilaQrController::entrar).
+Route::get('/fila/qr/{id}', [App\Http\Controllers\FilaQrController::class, 'entrar'])
+    ->name('fila.qr')
+    ->where('id', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
+    ->middleware('throttle:60,1');
+
 Route::prefix('restaurantes')->group(function () {
-    Route::get('/',          [App\Http\Controllers\RestauranteController::class, 'index']);
-    Route::get('/{id}',      [App\Http\Controllers\RestauranteController::class, 'show'])
-         ->where('id', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
+    Route::get('/', [App\Http\Controllers\RestauranteController::class, 'index']);
+    Route::get('/{id}', [App\Http\Controllers\RestauranteController::class, 'show'])
+        ->where('id', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
     Route::get('/{id}/mesas/disponiveis', [App\Http\Controllers\MesaController::class, 'disponiveis'])
-         ->where('id', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
+        ->where('id', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
     Route::get('/{id}/funcionarios', [App\Http\Controllers\FuncionarioController::class, 'publicIndex'])
-         ->where('id', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
+        ->where('id', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
 });
 
-//Definindo Rotas Protegidas (JWT guard api — mesmo provider que cliente)
+// Definindo Rotas Protegidas (JWT guard api — mesmo provider que cliente)
 Route::prefix('cliente')->middleware(['auth:api', \App\Http\Middleware\VerifyJwtTokenVersion::class, 'throttle:3,1'])->group(function () {
     Route::post('/email/resend', [App\Http\Controllers\Auth\EmailVerificationController::class, 'resend'])->defaults('tipo', 'cliente');
 });
 
 Route::prefix('cliente')->middleware(['auth:api', \App\Http\Middleware\VerifyJwtTokenVersion::class, \App\Http\Middleware\EnsureEmailIsVerified::class])->group(function () {
-    Route::get('/me',       [App\Http\Controllers\Auth\ClienteAuthController::class, 'me']);
-    Route::post('/logout',  [App\Http\Controllers\Auth\ClienteAuthController::class, 'logout']);
+    Route::get('/me', [App\Http\Controllers\Auth\ClienteAuthController::class, 'me']);
+    Route::post('/logout', [App\Http\Controllers\Auth\ClienteAuthController::class, 'logout']);
     Route::post('/refresh', [App\Http\Controllers\Auth\ClienteAuthController::class, 'refresh']);
 });
 
@@ -60,14 +72,15 @@ Route::middleware(['auth:api', \App\Http\Middleware\VerifyJwtTokenVersion::class
     Route::delete('/fila/{id}', [App\Http\Controllers\FilaController::class, 'destroy'])
         ->where('id', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
     Route::get('/fila/posicao', [App\Http\Controllers\FilaController::class, 'consultarPosicao']);
+    Route::get('/fila/estimativa', [App\Http\Controllers\FilaController::class, 'estimativa']);
 });
 
 // Reservas — cliente
 Route::middleware(['auth:api', \App\Http\Middleware\VerifyJwtTokenVersion::class, \App\Http\Middleware\EnsureEmailIsVerified::class])->group(function () {
-    Route::post('/reservas',                  [App\Http\Controllers\ReservaController::class, 'store']);
-    Route::get('/reservas',                   [App\Http\Controllers\ReservaController::class, 'index']);
-    Route::get('/reservas/{id}',              [App\Http\Controllers\ReservaController::class, 'show']);
-    Route::delete('/reservas/{id}',           [App\Http\Controllers\ReservaController::class, 'destroy']);
+    Route::post('/reservas', [App\Http\Controllers\ReservaController::class, 'store']);
+    Route::get('/reservas', [App\Http\Controllers\ReservaController::class, 'index']);
+    Route::get('/reservas/{id}', [App\Http\Controllers\ReservaController::class, 'show']);
+    Route::delete('/reservas/{id}', [App\Http\Controllers\ReservaController::class, 'destroy']);
 });
 
 Route::prefix('restaurante')->middleware(['auth:restaurante', \App\Http\Middleware\VerifyJwtTokenVersion::class, 'throttle:3,1'])->group(function () {
@@ -77,36 +90,42 @@ Route::prefix('restaurante')->middleware(['auth:restaurante', \App\Http\Middlewa
 Route::prefix('restaurante')->middleware(['auth:restaurante', \App\Http\Middleware\VerifyJwtTokenVersion::class, \App\Http\Middleware\EnsureEmailIsVerified::class])->group(function () {
     Route::get('/dashboard', [App\Http\Controllers\DashboardController::class, 'stats']);
 
-    Route::get('/me',         [App\Http\Controllers\Auth\RestauranteAuthController::class, 'me']);
-    Route::put('/me',         [App\Http\Controllers\Auth\RestauranteAuthController::class, 'update']);
+    // Historico operacional. O /dashboard acima continua sendo o estado atual.
+    Route::get('/analytics', [App\Http\Controllers\AnalyticsController::class, 'index']);
+
+    Route::get('/me', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'me']);
+    Route::put('/me', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'update']);
     Route::post('/me/imagem', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'uploadImagem']);
-    Route::post('/logout',    [App\Http\Controllers\Auth\RestauranteAuthController::class, 'logout']);
-    Route::post('/refresh',   [App\Http\Controllers\Auth\RestauranteAuthController::class, 'refresh']);
+    Route::post('/logout', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'logout']);
+    Route::post('/refresh', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'refresh']);
 
     // Reservas — restaurante
-    Route::get('/reservas',                [App\Http\Controllers\ReservaController::class, 'indexRestaurante']);
+    Route::get('/reservas', [App\Http\Controllers\ReservaController::class, 'indexRestaurante']);
     Route::patch('/reservas/{id}/checkin', [App\Http\Controllers\ReservaController::class, 'checkin']);
     Route::patch('/reservas/{id}/liberar', [App\Http\Controllers\ReservaController::class, 'liberar']);
-    Route::delete('/reservas/{id}',        [App\Http\Controllers\ReservaController::class, 'forceDestroyRestaurante']);
+    Route::delete('/reservas/{id}', [App\Http\Controllers\ReservaController::class, 'forceDestroyRestaurante']);
 
     // Fila — restaurante
-    Route::get('/fila',                [App\Http\Controllers\FilaController::class, 'indexRestaurante']);
-    Route::delete('/fila/{id}',        [App\Http\Controllers\FilaController::class, 'removerRestaurante'])
+    Route::get('/fila', [App\Http\Controllers\FilaController::class, 'indexRestaurante']);
+    Route::delete('/fila/{id}', [App\Http\Controllers\FilaController::class, 'removerRestaurante'])
         ->where('id', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
 
+    // QR de entrada na fila — restaurante
+    Route::get('/fila/qr', [App\Http\Controllers\FilaQrController::class, 'url']);
+
     // Mesas — restaurante
-    Route::get('/mesas',         [App\Http\Controllers\MesaController::class, 'index']);
-    Route::post('/mesas',        [App\Http\Controllers\MesaController::class, 'store']);
-    Route::put('/mesas/{id}',    [App\Http\Controllers\MesaController::class, 'update']);
+    Route::get('/mesas', [App\Http\Controllers\MesaController::class, 'index']);
+    Route::post('/mesas', [App\Http\Controllers\MesaController::class, 'store']);
+    Route::put('/mesas/{id}', [App\Http\Controllers\MesaController::class, 'update']);
     Route::delete('/mesas/{id}', [App\Http\Controllers\MesaController::class, 'destroy']);
 
     // Funcionários — restaurante
-    Route::get('/funcionarios',         [App\Http\Controllers\FuncionarioController::class, 'index']);
-    Route::post('/funcionarios',        [App\Http\Controllers\FuncionarioController::class, 'store']);
-    Route::put('/funcionarios/{id}',    [App\Http\Controllers\FuncionarioController::class, 'update']);
+    Route::get('/funcionarios', [App\Http\Controllers\FuncionarioController::class, 'index']);
+    Route::post('/funcionarios', [App\Http\Controllers\FuncionarioController::class, 'store']);
+    Route::put('/funcionarios/{id}', [App\Http\Controllers\FuncionarioController::class, 'update']);
     Route::delete('/funcionarios/{id}', [App\Http\Controllers\FuncionarioController::class, 'destroy']);
 });
 
-Route::prefix('cliente')->middleware('cliente.or.restaurante')->group(function(){
-    //adicione as rotas protegidas que tanto o cliente quanto o restaurante podem acessar
+Route::prefix('cliente')->middleware('cliente.or.restaurante')->group(function () {
+    // adicione as rotas protegidas que tanto o cliente quanto o restaurante podem acessar
 });

@@ -1,0 +1,237 @@
+name: CI
+
+# Roda a cada PR para develop/main e nos merges nessas branches.
+#
+# Nao usamos filtro por `paths` de proposito: quando os checks virarem
+# obrigatorios (issue #185), um job que nao roda nunca reporta status e o PR
+# trava para sempre em "waiting for status". Rodar sempre custa ~4 min.
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+# Cancela runs antigos do mesmo PR quando chega commit novo.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Backend — Laravel 12 / PHP 8.2 / PostgreSQL
+  # ─────────────────────────────────────────────────────────────
+  backend:
+    name: Backend (PHP 8.2)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: deep-dish-backend
+
+    services:
+      # Postgres efemero, criado e destruido a cada run.
+      # Nunca encosta no Supabase do time.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: deepdish_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      # Estas variaveis VENCEM o phpunit.xml, que fixa sqlite.
+      # O PHPUnit so define um <env> se a variavel ainda nao existir
+      # (PhpHandler.php: `if ($force || getenv($name) === false)`), e o
+      # phpunit.xml deste projeto nao usa force="true".
+      #
+      # Assim os testes rodam contra Postgres sem alterar o phpunit.xml,
+      # que e escopo da issue #160.
+      #
+      # ATENCAO: se alguem adicionar force="true" ao phpunit.xml, os testes
+      # voltam para sqlite silenciosamente e este job perde o sentido.
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: deepdish_test
+      DB_USERNAME: postgres
+      DB_PASSWORD: secret
+      # O .env.example usa sslmode=require (Supabase); o container nao tem TLS.
+      DB_SSLMODE: disable
+      # A aplicacao boota sem Reverb; nao subimos o servidor de broadcast aqui.
+      BROADCAST_CONNECTION: "null"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Instalar PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          # Mesmas extensoes do deep-dish-backend/Dockerfile.
+          extensions: pdo, pdo_pgsql, bcmath, zip, pcntl
+          coverage: none
+
+      - name: Localizar o cache do Composer
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Restaurar cache do Composer
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('deep-dish-backend/composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Instalar dependencias
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Preparar o .env
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          # JWT_SECRET nao vem preenchido no .env.example e sem ele o
+          # tymon/jwt-auth derruba o boot da aplicacao.
+          php artisan jwt:secret --force
+
+      - name: Rodar as migrations em banco virgem
+        id: migrate
+        run: |
+          saida=$(php artisan migrate --force)
+          echo "$saida"
+          total=$(echo "$saida" | grep -c "DONE" || true)
+          echo "total=$total" >> "$GITHUB_OUTPUT"
+
+      - name: Formatacao (Pint)
+        id: pint
+        run: ./vendor/bin/pint --test
+
+      - name: Testes (PHPUnit)
+        id: phpunit
+        run: |
+          # `bash -e` (shell padrao deste run:) aborta o step na proria
+          # atribuicao `saida=$(...)` se php artisan test sair com codigo != 0,
+          # antes do `echo "$saida"` rodar — e a saida do PHPUnit nunca aparece
+          # no log. set +e/-e em volta so da chamada evita isso sem desligar
+          # -e para o resto do step.
+          set +e
+          saida=$(php artisan test 2>&1)
+          status=$?
+          set -e
+
+          echo "$saida"
+
+          # A saida vem com codigos de cor ANSI; sem remover, o resumo fica ilegivel.
+          # `|| true` evita que o -o pipefail do shell padrao aborte o step
+          # quando o grep nao encontra a linha "Tests:" (ex.: PHPUnit falhou
+          # antes de rodar algum teste).
+          resumo=$(echo "$saida" | sed 's/\x1b\[[0-9;]*m//g' \
+            | grep -oE "Tests:.*" | tail -1 | sed 's/Tests:[[:space:]]*//' || true)
+          echo "resumo=${resumo:-sem resumo}" >> "$GITHUB_OUTPUT"
+
+          # Preserva o codigo de saida original do PHPUnit — e o que faz o
+          # step (e o job) continuar vermelho quando os testes falham.
+          exit $status
+
+      # Escreve um resumo em markdown no topo da pagina do run.
+      # `if: always()` faz o resumo aparecer tambem quando algum passo falha —
+      # que e justamente quando ele mais ajuda.
+      - name: Resumo
+        if: always()
+        run: |
+          {
+            echo "## Backend — PHP 8.2 · PostgreSQL 16"
+            echo ""
+            echo "| Verificação | Resultado |"
+            echo "|---|---|"
+            echo "| Migrations em banco virgem | ${{ steps.migrate.outcome == 'success' && '✅' || '❌' }} ${{ steps.migrate.outputs.total }} passos |"
+            echo "| Formatação (Pint) | ${{ steps.pint.outcome == 'success' && '✅' || '❌' }} |"
+            echo "| Testes (PHPUnit) | ${{ steps.phpunit.outcome == 'success' && '✅' || '❌' }} ${{ steps.phpunit.outputs.resumo }} |"
+            echo ""
+            echo "Banco: container \`postgres:16\` efêmero — o Supabase do time não é tocado."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ─────────────────────────────────────────────────────────────
+  # Frontend — React 18 / Vite / Node 20
+  # ─────────────────────────────────────────────────────────────
+  frontend:
+    name: Frontend (Node 20)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: deep-dish-frontend
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Instalar Node
+        uses: actions/setup-node@v7
+        with:
+          # Mesma versao do servico frontend no docker-compose.yml.
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: deep-dish-frontend/package-lock.json
+
+      - name: Instalar dependencias
+        # npm ci exige package-lock.json em sincronia com package.json.
+        run: npm ci
+
+      - name: Preparar o .env
+        # O build le import.meta.env.VITE_*; sem o arquivo os valores ficam
+        # undefined e o resultado deixa de ser deterministico.
+        run: cp .env.example .env
+
+      - name: Lint (ESLint)
+        id: lint
+        run: npm run lint
+
+      - name: Checagem de tipos (TypeScript)
+        id: tipos
+        # O `vite build` usa esbuild, que APAGA os tipos sem verifica-los.
+        # Sem este passo, nada no projeto valida TypeScript.
+        run: npx tsc --noEmit
+
+      - name: Testes (Vitest)
+        id: vitest
+        run: |
+          saida=$(npm test)
+          echo "$saida"
+          # Remove os codigos de cor ANSI antes de extrair o resumo.
+          resumo=$(echo "$saida" | sed 's/\x1b\[[0-9;]*m//g' \
+            | grep -oE "Tests +[0-9]+ passed.*" | tail -1 | sed 's/Tests  *//')
+          echo "resumo=${resumo:-sem resumo}" >> "$GITHUB_OUTPUT"
+
+      - name: Build de producao
+        id: build
+        run: |
+          saida=$(npm run build)
+          echo "$saida"
+          tempo=$(echo "$saida" | sed 's/\x1b\[[0-9;]*m//g' \
+            | grep -oE "built in [0-9.]+s" | tail -1)
+          echo "tempo=${tempo:-concluido}" >> "$GITHUB_OUTPUT"
+
+      - name: Resumo
+        if: always()
+        run: |
+          {
+            echo "## Frontend — Node 20 · Vite"
+            echo ""
+            echo "| Verificação | Resultado |"
+            echo "|---|---|"
+            echo "| Lint (ESLint) | ${{ steps.lint.outcome == 'success' && '✅' || '❌' }} |"
+            echo "| Tipos (tsc --noEmit) | ${{ steps.tipos.outcome == 'success' && '✅' || '❌' }} |"
+            echo "| Testes (Vitest) | ${{ steps.vitest.outcome == 'success' && '✅' || '❌' }} ${{ steps.vitest.outputs.resumo }} |"
+            echo "| Build de produção | ${{ steps.build.outcome == 'success' && '✅' || '❌' }} ${{ steps.build.outputs.tempo }} |"
+            echo ""
+            echo "> O \`vite build\` não verifica tipos — quem faz isso é o passo \`tsc --noEmit\`."
+          } >> "$GITHUB_STEP_SUMMARY"

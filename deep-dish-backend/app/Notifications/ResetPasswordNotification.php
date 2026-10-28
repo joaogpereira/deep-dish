@@ -24,12 +24,12 @@ class ResetPasswordNotification extends Notification implements ShouldQueue
     public function toMail(object $notifiable): MailMessage
     {
         $frontendUrl = rtrim(config('app.frontend_url', 'http://localhost:5173'), '/');
-        $email       = urlencode($notifiable->getEmailForPasswordReset());
-        $url         = "{$frontendUrl}/reset-password?token={$this->token}&email={$email}&tipo={$this->tipo}";
+        $email = urlencode($notifiable->getEmailForPasswordReset());
+        $url = "{$frontendUrl}/reset-password?token={$this->token}&email={$email}&tipo={$this->tipo}";
 
         return (new MailMessage)
             ->subject('Recuperação de senha — Deep Dish')
-            ->greeting('Olá, ' . $notifiable->name . '!')
+            ->greeting('Olá, '.$notifiable->name.'!')
             ->line('Recebemos uma solicitação para redefinir a senha da sua conta.')
             ->action('Redefinir senha', $url)
             ->line('Este link expira em **60 minutos**.')

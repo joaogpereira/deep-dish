@@ -1,10 +1,13 @@
 import { toast } from 'sonner';
+import { isRotaDeAutenticacao } from '@/lib/rotas';
 import { getAuthHeaders } from './api';
 
 const BASE = import.meta.env.VITE_API_URL;
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  // `data` é o corpo JSON do erro, para quem precisa de mais que a mensagem
+  // (ex.: o 404 de /fila/posicao diz em `status_saida` por que o cliente saiu).
+  constructor(public status: number, message: string, public data?: unknown) {
     super(message);
     this.name = 'ApiError';
   }
@@ -29,6 +32,11 @@ const traducoes: Record<string, string> = {
   'The password field must be at least 6 characters.' : 'A senha deve ter pelo menos 6 caracteres.',
   'The estado field must be 2 characters.'            : 'O estado deve ter 2 caracteres. Ex: SP.',
   'The name field must not be greater than 255 characters.' : 'O nome deve ter no máximo 255 caracteres.',
+  // O input de fila tem max="20", mas o navegador nao impede digitar 999 — o erro
+  // do servidor chega na tela, e sem estas linhas chegaria em ingles.
+  'The qntd pessoas field must not be greater than 100.'   : 'Informe um número de pessoas entre 1 e 100.',
+  'The qntd pessoas field must be at least 1.'             : 'Informe pelo menos 1 pessoa.',
+  'The qntd pessoas field must be an integer.'             : 'O número de pessoas deve ser inteiro.',
   'The cep field format is invalid.'                  : 'O CEP é inválido. Use o formato 00000-000.',
   'The email field must be a valid email address.'    : 'O e-mail informado é inválido.',
 
@@ -164,13 +172,17 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
   if (!res.ok) {
     if (res.status === 403 && (data as Record<string, unknown>)?.error === 'email_not_verified') {
-      if (!window.location.pathname.startsWith('/verify-email')) {
+      // Nas telas de autenticação a navegação é da pessoa, não nossa: quem tem
+      // um token não verificado guardado leva 403 em toda chamada, e mandar para
+      // /verify-email daqui a prendia lá — sem conseguir entrar com outra conta
+      // nem criar uma nova.
+      if (!isRotaDeAutenticacao(window.location.pathname)) {
         const tipo = localStorage.getItem('tipo_usuario') ?? 'cliente';
         window.location.href = `/verify-email?tipo=${tipo}`;
       }
       return Promise.reject(new ApiError(403, 'email_not_verified'));
     }
-    throw new ApiError(res.status, extrairMensagem(data, res.status));
+    throw new ApiError(res.status, extrairMensagem(data, res.status), data);
   }
 
   return data as T;
