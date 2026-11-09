@@ -269,9 +269,11 @@ class FilaServiceTest extends TestCase
     }
 
     /**
-     * Guarda contra a #169 virar a #170 sem querer: quando os dois cabem na
-     * única mesa, quem chegou primeiro senta. Reordenar a fila por encaixe é
-     * escopo da #170, que traz a regra de anti-starvation junto.
+     * Com a #170 a ordem de chegada deixou de ser absoluta, mas continua sendo a
+     * regra enquanto reordenar não traz ganho: os dois cabem na única mesa, com
+     * desperdício dentro do limite (config 'fila.desperdicio_maximo_lugares'), então
+     * quem chegou primeiro senta. Os casos em que o encaixe passa alguém na frente —
+     * e a proteção contra starvation — estão em FilaEncaixeTest.
      */
     public function test_ordem_de_chegada_e_respeitada_quando_os_dois_cabem(): void
     {

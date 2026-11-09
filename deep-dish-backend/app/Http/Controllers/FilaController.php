@@ -60,7 +60,7 @@ class FilaController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        $clienteFila->load('fila')->append('posicao');
+        $clienteFila->load('fila')->append(['posicao', 'protegida', 'protecao_em_minutos']);
 
         $estimativa = $this->estimativaService->estimar(
             $validated['restaurante_id'],
@@ -98,25 +98,21 @@ class FilaController extends Controller
         $restauranteId = auth('restaurante')->id();
 
         $entries = ClienteFila::with(['fila', 'cliente'])
-            ->ativas()
-            ->whereHas('fila', fn ($q) => $q
-                ->where('restaurante_id', $restauranteId)
-                ->where('status', Fila::STATUS_ABERTA)
-            )
-            ->orderBy('created_at')
-            ->orderBy('id')
+            ->aguardandoNoRestaurante((string) $restauranteId)
+            ->emOrdemDeChegada()
             ->get();
 
         // Posição calculada em memória: a lista já está ordenada e contém só ativos.
-        // Usar ->append('posicao') aqui dispararia um COUNT por registro.
-        //
-        // A numeração é CONTÍNUA sobre a lista toda. Antes havia um groupBy('fila_id')
-        // aqui, e como nasce uma fila por hora (Fila::janelaAtual()), o painel
-        // mostrava 1,2,3 e depois 1,2,3,4 — duas numerações para uma única fila de
-        // espera. A ordem de chamada sempre foi por restaurante, não por hora.
-        $entries->values()->each(function ($registro, $i) use ($restauranteId) {
+        // Usar ->append('posicao') aqui dispararia um COUNT por registro. É uma
+        // sequência única para o restaurante inteiro (todas as filas abertas),
+        // a mesma de ClienteFila::getPosicaoAttribute.
+        $agora = now();
+
+        $entries->values()->each(function ($registro, $i) use ($restauranteId, $agora) {
             $posicao = $i + 1;
             $registro->setAttribute('posicao', $posicao);
+            $registro->setAttribute('protegida', $registro->estaProtegida($agora));
+            $registro->setAttribute('protecao_em_minutos', $registro->protecaoEmMinutos($agora));
 
             $estimativa = $this->estimativaService->estimar(
                 (string) $restauranteId,
@@ -214,10 +210,9 @@ class FilaController extends Controller
         $horarioReserva = isset($validated['horario_reserva'])
             ? Carbon::parse($validated['horario_reserva'])->utc()
             : Fila::janelaAtual();
-        $horarioUTC = $horarioReserva->format('Y-m-d H:i:s');
 
         // Posição hipotética: quem entrasse agora ficaria depois de todo mundo já ativo.
-        $posicaoEstimada = $this->filaService->contarAtivos($validated['restaurante_id'], $horarioUTC) + 1;
+        $posicaoEstimada = $this->filaService->contarAtivos($validated['restaurante_id']) + 1;
 
         $estimativa = $this->estimativaService->estimar(
             $validated['restaurante_id'],

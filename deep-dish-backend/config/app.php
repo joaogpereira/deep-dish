@@ -56,6 +56,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Frontend URL
+    |--------------------------------------------------------------------------
+    |
+    | Para onde o backend redireciona links vindos de fora (verificação de
+    | e-mail, redefinição de senha, QR de entrada na fila). Antes só o .env
+    | tinha FRONTEND_URL e nenhum config a lia: os controllers caíam no
+    | fallback hardcoded.
+    |
+    */
+
+    'frontend_url' => env('FRONTEND_URL', 'http://localhost:8080'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

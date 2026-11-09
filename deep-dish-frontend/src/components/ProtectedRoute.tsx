@@ -1,8 +1,9 @@
 // src/components/ProtectedRoute.tsx
 import React from "react";
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Cliente, Restaurante, User } from "@/types";
+import { salvarDestino, lerDestino, limparDestino } from "@/lib/redirectAposLogin";
 
 type TipoUsuario = "cliente" | "restaurante";
 
@@ -28,11 +29,14 @@ function getTipo(user: User): TipoUsuario | null {
 
 const ProtectedRoute: React.FC<Props> = ({ children, allow }) => {
   const { user, isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) return null; // coloque um spinner se quiser
 
-  // Não logado
+  // Não logado: guarda o destino (validado em salvarDestino) para o login
+  // devolver o cliente a ele — é o que faz o QR da fila sobreviver ao login.
   if (!isAuthenticated || !user) {
+    if (allow.includes("cliente")) salvarDestino(location.pathname + location.search);
     return <Navigate to="/login" replace />;
   }
 
@@ -51,6 +55,9 @@ const ProtectedRoute: React.FC<Props> = ({ children, allow }) => {
       />
     );
   }
+
+  // Chegou ao destino guardado: o valor velho não pode redirecionar um login futuro.
+  if (lerDestino() === location.pathname + location.search) limparDestino();
 
   return children ?? <Outlet />;
 };

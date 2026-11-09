@@ -32,6 +32,19 @@ use Illuminate\Support\Facades\DB;
  * sentaram após 25 min e seis desistiram após 8 min tem média geral de 15 min,
  * um valor em que ninguém foi atendido.
  *
+ * ── Posição histórica e a priorização por encaixe (#170) ──
+ * A posição de cada amostra é "quantas pessoas do restaurante estavam na fila,
+ * à minha frente, quando cheguei" — a mesma noção de ClienteFila::posicao (todas
+ * as filas abertas do restaurante, por chegada). Antes era o ROW_NUMBER dentro
+ * do fila_id, que reiniciava a contagem a cada janela de horário e deixava a
+ * reta treinada numa escala diferente da posição que a tela passa a estimar.
+ *
+ * O encaixe não exige outro modelo: quem foi ultrapassado esperou mais do que a
+ * posição sugeria, e isso entra nos dados reais que a reta ajusta. O que
+ * importa é a escala da posição ser a mesma na amostra e na consulta. A espera
+ * de quem é protegido (#170) tem teto prático; já a de quem pode ser
+ * ultrapassado é uma estimativa, e a tela a rotula como tal.
+ *
  * ── Por que DB::table e não Eloquent ──
  * ClienteFila::registrarSaida() faz soft delete ao encerrar a entrada, então
  * TODA linha concluída tem deleted_at preenchido — e são exatamente essas que
@@ -145,18 +158,29 @@ class EstimativaEsperaService
     ): ?array {
         $local = $this->emFusoLocal('cf.created_at');
 
-        // A posição é numerada ANTES de filtrar por 'atendido': quem entrou na
+        // A posição é contada ANTES de filtrar por 'atendido': quem entrou na
         // fila contou todo mundo à frente, tenha essa gente sentado ou
-        // desistido depois. Numerar só os atendidos deslocaria toda a escala
+        // desistido depois. Contar só os atendidos deslocaria toda a escala
         // para baixo e achataria a inclinação.
+        //
+        // "À frente" = chegou antes, no mesmo restaurante (qualquer fila) e
+        // ainda não tinha saído quando esta entrada chegou. O recorte de 1 dia
+        // só limita o custo da subconsulta: ninguém espera dias numa fila.
         $sql = "
             WITH numeradas AS (
                 SELECT
                     cf.status_saida,
                     cf.tempo_espera_segundos,
                     cf.qntd_pessoas,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY cf.fila_id ORDER BY cf.created_at, cf.id
+                    1 + (
+                        SELECT COUNT(*)
+                        FROM clientefila a
+                        JOIN fila fa ON fa.id = a.fila_id
+                        WHERE fa.restaurante_id = f.restaurante_id
+                          AND (a.created_at < cf.created_at
+                               OR (a.created_at = cf.created_at AND a.id < cf.id))
+                          AND a.created_at > cf.created_at - INTERVAL '1 day'
+                          AND (a.saiu_em IS NULL OR a.saiu_em > cf.created_at)
                     ) AS posicao,
                     EXTRACT(DOW FROM {$local})::int AS dia,
                     EXTRACT(HOUR FROM {$local})::int AS hora

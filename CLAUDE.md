@@ -87,6 +87,9 @@ docker-compose up    # Spins up backend, queue worker, and frontend
 **Table statuses** (`Mesa` model): `livre` | `reservada` | `ocupada` | `bloqueada`
 
 **Queue**: One `Fila` per restaurant per time slot. `ClienteFila` entries track party size; position is calculated on-the-fly (no stored `posicao` column).
+- Position is the rank by arrival across **all open `Fila`s of the restaurant** (`ClienteFila::scopeAguardandoNoRestaurante` + `scopeEmOrdemDeChegada`), the same order `FilaService::entradasAguardando` uses to call people.
+- Table allocation (`FilaService::escolherAlocacoes`, #170): FCFS with a controlled "encaixe" — a group is passed over only if the table would waste more than `fila.desperdicio_maximo_lugares` seats and a later group fits it better; entries waiting ≥ `fila.espera_protegida_minutos` are protected (served first, never overtaken). Config in `config/fila.php`.
+- Queue QR (#174): `GET /api/restaurante/fila/qr` returns a permanent signed URL (`fila.qr` route); scanning redirects to the frontend `/app/restaurants/{id}/entrar-na-fila`, and the unauthenticated destination is kept via `lib/redirectAposLogin`.
 
 **All primary keys are UUIDs.**
 

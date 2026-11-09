@@ -25,6 +25,7 @@ import VerifyEmail from "@/pages/VerifyEmail";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
 import NotFound from "@/pages/NotFound";
+import QrErro from "@/pages/QrErro";
 
 import AppHome from "@/pages/app/Home";
 import Search from "@/pages/app/Search";
@@ -33,6 +34,7 @@ import RestaurantDetail from "@/pages/app/RestaurantDetail";
 import Confirm from "@/pages/app/Confirm";
 import Queue from "@/pages/app/Queue";
 import ReservationDetail from "@/pages/app/ReservationDetail";
+import EntrarNaFila from "@/pages/app/EntrarNaFila";
 
 import Dashboard from "@/pages/restaurant/Dashboard";
 import Settings from "@/pages/restaurant/Settings";
@@ -40,6 +42,7 @@ import Tables from "@/pages/restaurant/Tables";
 import QueueManagement from "@/pages/restaurant/QueueManagement";
 import AdminReservations from "@/pages/restaurant/Reservations";
 import Staff from "@/pages/restaurant/Staff";
+import FilaQr from "@/pages/restaurant/FilaQr";
 
 const queryClient = new QueryClient();
 
@@ -69,6 +72,7 @@ const App = () => (
               <Route path="/restaurant/forgot-password" element={<GuestRoute><ForgotPassword tipo="restaurante" /></GuestRoute>} />
               <Route path="/reset-password" element={<GuestRoute><ResetPassword /></GuestRoute>} />
               <Route path="/verify-email" element={<VerifyEmail />} />
+              <Route path="/qr-erro" element={<QrErro />} />
             </Route>
 
             {/* Client App (só cliente — reserva/fila são ações do cliente, o
@@ -84,6 +88,7 @@ const App = () => (
               <Route path="/app/search" element={<Search />} />
               <Route path="/app/restaurants" element={<Restaurants />} />
               <Route path="/app/restaurants/:id" element={<RestaurantDetail />} />
+              <Route path="/app/restaurants/:id/entrar-na-fila" element={<EntrarNaFila />} />
               <Route path="/app/confirm" element={<Confirm />} />
               <Route path="/app/queue" element={<Queue />} />
               <Route
@@ -104,6 +109,7 @@ const App = () => (
               <Route path="/restaurant/settings" element={<Settings />} />
               <Route path="/restaurant/tables" element={<Tables />} />
               <Route path="/restaurant/queue" element={<QueueManagement />} />
+              <Route path="/restaurant/queue/qr" element={<FilaQr />} />
               <Route
                 path="/restaurant/reservations"
                 element={<AdminReservations />}

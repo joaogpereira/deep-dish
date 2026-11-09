@@ -159,7 +159,7 @@ class FilaService
 
         // 'posicao' saiu do $appends do model (era N+1 em listagens);
         // aqui a posição é o objetivo da chamada, então anexamos explicitamente.
-        return $registro?->append('posicao');
+        return $registro?->append(['posicao', 'protegida', 'protecao_em_minutos']);
     }
 
     /**
@@ -262,73 +262,161 @@ class FilaService
     }
 
     /**
-     * Quem senta em qual mesa: cada entrada, na ordem de chegada, recebe a menor
-     * mesa que a comporta.
+     * Quem senta em qual mesa. A ordem base é a de chegada; o encaixe a
+     * flexibiliza só dentro de limites (config/fila.php, #170):
      *
-     * O laço externo é o das ENTRADAS, e essa é a correção. Antes ele era o das
-     * mesas e comparava sempre com o primeiro da fila: quando o primeiro não
-     * cabia, o código pulava para a próxima mesa e nunca para a próxima pessoa.
-     * Uma família de 8 na frente segurava um casal atrás com mesa de 2 vaga, e a
-     * mesa descartada cedo no laço não voltava para quem vinha depois.
+     * 1. PROTEGIDAS primeiro. Quem já esperou 'espera_protegida_minutos' recebe a
+     *    menor mesa que o comporta antes de qualquer otimização, em ordem de
+     *    chegada entre si. É a trava de starvation: um grupo de 6 não fica para
+     *    sempre atrás de casais que "encaixam melhor".
      *
-     * "Menor mesa que cabe" sai de graça: mesasDisponiveis() já ordena por
-     * capacidade crescente, então a primeira que serve é a mais justa.
+     * 2. Os demais, em ordem de chegada, recebem a menor mesa que os comporta —
+     *    EXCETO quando o desperdício passa de 'desperdicio_maximo_lugares' e
+     *    outro grupo ainda sem mesa encaixa nela dentro do limite, desperdiçando
+     *    menos. Aí a mesa fica para esse outro e o grupo da vez espera por uma
+     *    mesa menor. Exemplo: casal chegou antes de um grupo de 8, vagou só uma
+     *    mesa de 10 — o grupo de 8 senta, o casal fica com a próxima mesa pequena.
      *
-     * A ordem da fila é respeitada de propósito. Escolher globalmente a
-     * combinação de menor desperdício deixaria um grupo maior passar na frente
-     * de quem chegou antes sem sentar mais ninguém — reordenar a fila é escopo
-     * da #170, que traz junto a regra de anti-starvation.
+     * 3. Sobras: mesa que ninguém "melhor" aproveitou não fica parada por causa de
+     *    uma preterição. Os preteridos na fase 2 recebem, em ordem de chegada, o
+     *    que restou — sem exigir encaixe, porque esperar não traz mesa melhor.
+     *
+     * Não há previsão de mesas que vão vagar: a decisão usa só o que está livre
+     * agora. A mesa menor que vagar depois dispara novo processarPromocoes().
+     *
+     * A fase 2 não gera starvation: a preterição só acontece enquanto a entrada
+     * é recente, e ao completar o tempo protegido ela passa à fase 1.
      *
      * Quem não cabe em mesa nenhuma é pulado e continua na fila. Grupo maior que
      * qualquer mesa do salão só é atendido juntando mesas, que o sistema ainda
      * não faz.
      *
-     * @param  Collection<int, Mesa>  $mesas
+     * @param  Collection<int, Mesa>  $mesas  em ordem de capacidade crescente
      * @return list<array{0: ClienteFila, 1: Mesa}>
      */
     private function escolherAlocacoes(string $restauranteId, Collection $mesas): array
     {
-        $entradas = $this->entradasAguardando($restauranteId);
+        $entradas = $this->entradasAguardando($restauranteId)->values();
         $disponiveis = $mesas->values();
+        $maxDesperdicio = (int) config('fila.desperdicio_maximo_lugares');
+        $agora = now();
         $alocacoes = [];
+        $alocadas = [];
 
+        $alocar = function (ClienteFila $entrada, int $indice) use (&$alocacoes, &$alocadas, $disponiveis) {
+            $alocacoes[] = [$entrada, $disponiveis->get($indice)];
+            $alocadas[(string) $entrada->id] = true;
+            $disponiveis->forget($indice);
+        };
+
+        // Fase 1 — protegidas: menor mesa que cabe, sem disputa.
         foreach ($entradas as $entrada) {
-            if ($disponiveis->isEmpty()) {
-                break;
-            }
-
-            $indice = $disponiveis->search(
-                fn (Mesa $mesa) => $mesa->capacidade >= $entrada->qntd_pessoas
-            );
-
-            if ($indice === false) {
+            if (! $entrada->estaProtegida($agora)) {
                 continue;
             }
 
-            $alocacoes[] = [$entrada, $disponiveis->get($indice)];
-            $disponiveis->forget($indice);
+            $indice = $this->menorMesaQueCabe($disponiveis, $entrada);
+
+            if ($indice !== false) {
+                $alocar($entrada, $indice);
+            }
+        }
+
+        // Fase 2 — demais: menor mesa que cabe, salvo desperdício disputado.
+        $preteridas = [];
+
+        foreach ($entradas as $entrada) {
+            if (isset($alocadas[(string) $entrada->id]) || $entrada->estaProtegida($agora)) {
+                continue;
+            }
+
+            $escolhida = false;
+            $foiPreterida = false;
+
+            foreach ($disponiveis as $indice => $mesa) {
+                if ($mesa->capacidade < $entrada->qntd_pessoas) {
+                    continue;
+                }
+
+                $desperdicio = $mesa->capacidade - $entrada->qntd_pessoas;
+
+                if ($desperdicio > $maxDesperdicio
+                    && $this->outroEncaixaMelhor($mesa, $entrada, $entradas, $alocadas, $maxDesperdicio)) {
+                    $foiPreterida = true;
+
+                    continue;
+                }
+
+                $escolhida = $indice;
+                break;
+            }
+
+            if ($escolhida !== false) {
+                $alocar($entrada, $escolhida);
+            } elseif ($foiPreterida) {
+                $preteridas[] = $entrada;
+            }
+        }
+
+        // Fase 3 — sobras para os preteridos, em ordem de chegada.
+        foreach ($preteridas as $entrada) {
+            $indice = $this->menorMesaQueCabe($disponiveis, $entrada);
+
+            if ($indice !== false) {
+                $alocar($entrada, $indice);
+            }
         }
 
         return $alocacoes;
     }
 
+    /** Índice da menor mesa que comporta o grupo, ou false. $mesas já vem por capacidade crescente. */
+    private function menorMesaQueCabe(Collection $mesas, ClienteFila $entrada): int|false
+    {
+        return $mesas->search(fn (Mesa $mesa) => $mesa->capacidade >= $entrada->qntd_pessoas);
+    }
+
+    /**
+     * Alguém ainda sem mesa encaixa nesta mesa dentro do limite de desperdício e
+     * desperdiçando menos que $entrada? Comparação estrita, para que dois grupos
+     * nunca se preteram mutuamente.
+     *
+     * Só vale quem encaixa DENTRO do limite: trocar um grupo por outro que
+     * também sobra muita mesa não melhora a ocupação e só fura a fila.
+     *
+     * @param  Collection<int, ClienteFila>  $entradas
+     * @param  array<string, true>  $alocadas
+     */
+    private function outroEncaixaMelhor(
+        Mesa $mesa,
+        ClienteFila $entrada,
+        Collection $entradas,
+        array $alocadas,
+        int $maxDesperdicio
+    ): bool {
+        return $entradas->contains(function (ClienteFila $outra) use ($mesa, $entrada, $alocadas, $maxDesperdicio) {
+            if ($outra->id === $entrada->id || isset($alocadas[(string) $outra->id])) {
+                return false;
+            }
+
+            return $outra->qntd_pessoas > $entrada->qntd_pessoas
+                && $outra->qntd_pessoas <= $mesa->capacidade
+                && $mesa->capacidade - $outra->qntd_pessoas <= $maxDesperdicio;
+        });
+    }
+
     /**
      * Fila do restaurante, da entrada mais antiga para a mais nova, travada para
      * esta transação. Junta todas as filas abertas: a ordem é por chegada, não
-     * por horário de reserva.
+     * por horário de reserva — a mesma ordem de ClienteFila::getPosicaoAttribute.
      *
      * @return Collection<int, ClienteFila>
      */
     private function entradasAguardando(string $restauranteId): Collection
     {
         return ClienteFila::query()
-            ->ativas()
-            ->whereHas('fila', fn ($q) => $q
-                ->where('restaurante_id', $restauranteId)
-                ->where('status', Fila::STATUS_ABERTA)
-            )
-            ->orderBy('created_at')
-            ->orderBy('id')
+            ->aguardandoNoRestaurante($restauranteId)
+            ->emOrdemDeChegada()
             ->lockForUpdate()
             ->get();
     }
@@ -429,25 +517,13 @@ class FilaService
     }
 
     /**
-     * Quantos clientes ativos há na fila de um restaurante para um horário específico.
-     * Devolve 0 quando a fila ainda nem existe — usado para estimar a posição de
-     * quem ainda não entrou (FilaController::estimativa).
+     * Quantos clientes ativos há na fila do restaurante, somando todas as filas
+     * abertas — a mesma conta de ClienteFila::getPosicaoAttribute, para que a
+     * posição estimada de quem ainda não entrou seja a que ele terá ao entrar.
      */
-    public function contarAtivos(string $restauranteId, string $horarioReserva): int
+    public function contarAtivos(string $restauranteId): int
     {
-        $horario = Carbon::parse($horarioReserva);
-
-        $fila = Fila::query()
-            ->where('restaurante_id', $restauranteId)
-            ->where('horario_reserva', $horario)
-            ->where('status', Fila::STATUS_ABERTA)
-            ->first();
-
-        if (! $fila) {
-            return 0;
-        }
-
-        return ClienteFila::query()->ativas()->where('fila_id', $fila->id)->count();
+        return ClienteFila::query()->aguardandoNoRestaurante($restauranteId)->count();
     }
 
     /** Público: o FilaController::removerRestaurante também precisa desta regra. */

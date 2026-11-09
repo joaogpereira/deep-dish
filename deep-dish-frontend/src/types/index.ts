@@ -116,6 +116,10 @@ export interface ClienteFilaEntry extends Partial<EstimativaEspera> {
   cliente_id: string;
   qntd_pessoas: number;
   posicao: number;
+  // Esperou o limite de espera protegida: tem prioridade absoluta, nenhum encaixe a ultrapassa.
+  protegida?: boolean;
+  // Minutos até a proteção (0 = já protegida). Até lá a posição é por chegada, não garantida.
+  protecao_em_minutos?: number | null;
   created_at: string;
   updated_at: string;
   fila?: {
@@ -130,6 +134,14 @@ export interface ClienteFilaEntry extends Partial<EstimativaEspera> {
     email: string;
     telefone?: string;
   };
+}
+
+// GET /restaurante/fila/qr — URL assinada e permanente do QR de entrada na fila.
+export interface FilaQrInfo {
+  restaurante_id: string;
+  nome: string;
+  fila_ativa: boolean;
+  url: string;
 }
 
 export interface QueueEntry {

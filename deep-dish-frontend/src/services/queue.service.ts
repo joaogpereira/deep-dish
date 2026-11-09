@@ -1,4 +1,4 @@
-import { ClienteFilaEntry, EstimativaEspera } from '@/types';
+import { ClienteFilaEntry, EstimativaEspera, FilaQrInfo } from '@/types';
 import { httpClient } from './httpClient';
 
 export const queueService = {
@@ -47,5 +47,9 @@ export const queueService = {
 
   async removeFromQueue(entryId: string): Promise<void> {
     return httpClient.delete(`/restaurante/fila/${entryId}`);
+  },
+
+  async getFilaQr(): Promise<FilaQrInfo> {
+    return httpClient.get('/restaurante/fila/qr');
   },
 };
