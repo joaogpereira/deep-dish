@@ -220,8 +220,19 @@ class ClienteFila extends Model
             return null;
         }
 
+        $restauranteId = $this->fila?->restaurante_id;
+
+        if ($restauranteId === null) {
+            return null;
+        }
+
         return 1 + (int) static::query()
             ->aguardandoNoRestaurante((string) $this->fila->restaurante_id)
+            ->ativas()
+            ->whereHas('fila', fn (Builder $q) => $q
+                ->where('restaurante_id', $restauranteId)
+                ->where('status', Fila::STATUS_ABERTA)
+            )
             ->where(function (Builder $q) {
                 $q->where('created_at', '<', $this->created_at)
                     ->orWhere(function (Builder $q2) {
