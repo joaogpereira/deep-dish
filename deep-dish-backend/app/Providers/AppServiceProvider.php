@@ -28,5 +28,14 @@ class AppServiceProvider extends ServiceProvider
         // Por usuário quando autenticado; por IP quando não.
         RateLimiter::for('api', fn (Request $request) => Limit::perMinute(60)
             ->by($request->user()?->getAuthIdentifier() ?: $request->ip()));
+
+        // Assistente (#179): cada requisição custa tokens pagos, então o teto é
+        // por restaurante e bem abaixo do geral.
+        RateLimiter::for('assistente', fn (Request $request) => Limit::perMinute(config('assistente.requisicoes_por_minuto'))
+            ->by('assistente:'.auth('restaurante')->id())
+            ->response(fn () => response()->json([
+                'error' => 'assistente_rate_limit',
+                'message' => 'Muitas perguntas em pouco tempo. Aguarde um minuto e tente de novo.',
+            ], 429)));
     }
 }

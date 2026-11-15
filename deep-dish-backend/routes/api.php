@@ -93,6 +93,10 @@ Route::prefix('restaurante')->middleware(['auth:restaurante', \App\Http\Middlewa
     // Historico operacional. O /dashboard acima continua sendo o estado atual.
     Route::get('/analytics', [App\Http\Controllers\AnalyticsController::class, 'index']);
 
+    // Assistente do painel
+    Route::post('/assistente/chat', [App\Http\Controllers\AssistenteChatController::class, 'chat'])
+        ->middleware('throttle:assistente');
+
     Route::get('/me', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'me']);
     Route::put('/me', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'update']);
     Route::post('/me/imagem', [App\Http\Controllers\Auth\RestauranteAuthController::class, 'uploadImagem']);
