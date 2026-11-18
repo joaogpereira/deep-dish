@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import { MapaDeCalor } from '@/components/dashboard/MapaDeCalor';
 import { AbandonoChart } from '@/components/dashboard/AbandonoChart';
 import { OcupacaoChart } from '@/components/dashboard/OcupacaoChart';
 import { formatarData } from '@/components/dashboard/format';
+import { AssistenteChat, type GraficoDoPainel } from '@/components/dashboard/AssistenteChat';
 
 const PERIODOS = [
   { dias: 7, rotulo: '7 dias' },
@@ -79,6 +80,29 @@ const Dashboard: React.FC = () => {
     retry: RETENTATIVAS,
   });
 
+  // Gráfico apontado por uma resposta do assistente: rola até ele e o destaca
+  // por um instante, para o gerente conferir o número.
+  const [destaque, setDestaque] = useState<GraficoDoPainel | null>(null);
+
+  useEffect(() => {
+    if (!destaque) return;
+    const t = setTimeout(() => setDestaque(null), 4000);
+    return () => clearTimeout(t);
+  }, [destaque]);
+
+  function verGrafico(grafico: GraficoDoPainel) {
+    // Sem gráfico na tela (carregando, erro ou período vazio), leva ao histórico.
+    (document.getElementById(`grafico-${grafico}`) ?? document.getElementById('titulo-historico'))
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setDestaque(grafico);
+  }
+
+  const moldura = (grafico: GraficoDoPainel, extra?: string) => cn(
+    'grid grid-cols-[minmax(0,1fr)] rounded-2xl transition-shadow duration-300',
+    extra,
+    destaque === grafico && 'ring-2 ring-primary ring-offset-2 ring-offset-background',
+  );
+
   const cards = stats.data ? [
     { label: 'Fila agora', value: stats.data.queue_size, icon: Users, color: 'text-primary', bg: 'bg-primary/8' },
     { label: 'Reservas hoje', value: stats.data.reservations_today, icon: CalendarDays, color: 'text-gold-accent', bg: 'bg-gold-accent/10' },
@@ -124,6 +148,8 @@ const Dashboard: React.FC = () => {
           ))}
         </div>
       )}
+
+      <AssistenteChat onVerGrafico={verGrafico} />
 
       <section className="space-y-4" aria-labelledby="titulo-historico">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -175,16 +201,20 @@ const Dashboard: React.FC = () => {
             aria-busy={analytics.isPlaceholderData}
             className={cn('grid gap-4 transition-opacity xl:grid-cols-2', analytics.isPlaceholderData && 'opacity-60')}
           >
-            <EsperaPorHoraChart dados={analytics.data.espera_por_faixa_horaria} />
-            <AbandonoChart abandono={analytics.data.abandono} />
+            <div id="grafico-espera" className={moldura('espera')}>
+              <EsperaPorHoraChart dados={analytics.data.espera_por_faixa_horaria} />
+            </div>
+            <div id="grafico-abandono" className={moldura('abandono')}>
+              <AbandonoChart abandono={analytics.data.abandono} />
+            </div>
             {/* Os dois de largura total: a grade de horas e a série de até 365 dias precisam de espaço. */}
-            <div className="xl:col-span-2">
+            <div id="grafico-mapa" className={moldura('mapa', 'xl:col-span-2')}>
               <MapaDeCalor
                 celulas={analytics.data.mapa_de_calor.celulas}
                 pico={analytics.data.mapa_de_calor.pico}
               />
             </div>
-            <div className="xl:col-span-2">
+            <div id="grafico-ocupacao" className={moldura('ocupacao', 'xl:col-span-2')}>
               <OcupacaoChart ocupacao={analytics.data.ocupacao} />
             </div>
           </div>
