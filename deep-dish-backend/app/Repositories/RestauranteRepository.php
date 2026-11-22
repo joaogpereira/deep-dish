@@ -10,31 +10,28 @@ class RestauranteRepository
     {
         // ✅ Único lugar que "fala com o banco" nesta arquitetura
         return Restaurante::create([
-            'name'                  => $data['name'],
-            'email'                 => $data['email'],
-            'cnpj'                  => $data['cnpj'],
-            'tipo'                  => $data['tipo'],
-            'logradouro'            => $data['logradouro'],
-            'numero'                => $data['numero'],
-            'complemento'           => $data['complemento'] ?? null,
-            'bairro'                => $data['bairro'],
-            'cidade'                => $data['cidade'],
-            'estado'                => strtoupper($data['estado']),
-            'cep'                   => $data['cep'],
-            'telefone'              => $data['telefone'] ?? null,
-            'imagem_url'            => $data['imagem_url'] ?? null,
+            'name' => $data['name'],
+            'email' => $data['email'],
+            'cnpj' => $data['cnpj'],
+            'tipo' => $data['tipo'],
+            'logradouro' => $data['logradouro'],
+            'numero' => $data['numero'],
+            'complemento' => $data['complemento'] ?? null,
+            'bairro' => $data['bairro'],
+            'cidade' => $data['cidade'],
+            'estado' => strtoupper($data['estado']),
+            'cep' => $data['cep'],
+            'telefone' => $data['telefone'] ?? null,
+            'imagem_url' => $data['imagem_url'] ?? null,
             'horario_funcionamento' => $data['horario_funcionamento'] ?? null,
-            'fila_ativa'            => $data['fila_ativa'] ?? false,
-            'tipo_usuario'          => $data['tipo_usuario'],
-            'password'              => $data['password'],
+            'fila_ativa' => $data['fila_ativa'] ?? false,
+            'tipo_usuario' => $data['tipo_usuario'],
+            'password' => $data['password'],
         ]);
     }
 
     /**
      * Busca um restaurante pelo ID.
-     *
-     * @param  string  $id
-     * @return Restaurante|null
      */
     public function findById(string $id): ?Restaurante
     {
@@ -60,37 +57,37 @@ class RestauranteRepository
     {
         $query = Restaurante::query();
 
-        if (!empty($filters['q'])) {
+        if (! empty($filters['q'])) {
             $term = $filters['q'];
 
             $query->where(function ($q) use ($term) {
-                $q->where('name',       'LIKE', "%{$term}%")
-                  ->orWhere('logradouro','LIKE', "%{$term}%")
-                  ->orWhere('bairro',    'LIKE', "%{$term}%")
-                  ->orWhere('cidade',    'LIKE', "%{$term}%")
-                  ->orWhere('estado',    'LIKE', "%{$term}%")
-                  ->orWhere('cep',       'LIKE', "%{$term}%");
+                $q->where('name', 'LIKE', "%{$term}%")
+                    ->orWhere('logradouro', 'LIKE', "%{$term}%")
+                    ->orWhere('bairro', 'LIKE', "%{$term}%")
+                    ->orWhere('cidade', 'LIKE', "%{$term}%")
+                    ->orWhere('estado', 'LIKE', "%{$term}%")
+                    ->orWhere('cep', 'LIKE', "%{$term}%");
             });
         }
 
-        if (!empty($filters['cidade'])) {
-            $query->where('cidade', 'LIKE', '%' . $filters['cidade'] . '%');
+        if (! empty($filters['cidade'])) {
+            $query->where('cidade', 'LIKE', '%'.$filters['cidade'].'%');
         }
 
-        if (!empty($filters['estado'])) {
+        if (! empty($filters['estado'])) {
             $query->where('estado', strtoupper($filters['estado']));
         }
 
-        if (!empty($filters['bairro'])) {
-            $query->where('bairro', 'LIKE', '%' . $filters['bairro'] . '%');
+        if (! empty($filters['bairro'])) {
+            $query->where('bairro', 'LIKE', '%'.$filters['bairro'].'%');
         }
 
-        if (!empty($filters['cep'])) {
-            $query->where('cep', 'LIKE', '%' . $filters['cep'] . '%');
+        if (! empty($filters['cep'])) {
+            $query->where('cep', 'LIKE', '%'.$filters['cep'].'%');
         }
 
-        if (!empty($filters['tipo'])) {
-            $query->whereRaw('LOWER(tipo) LIKE ?', ['%' . strtolower($filters['tipo']) . '%']);
+        if (! empty($filters['tipo'])) {
+            $query->whereRaw('LOWER(tipo) LIKE ?', ['%'.strtolower($filters['tipo']).'%']);
         }
 
         return $query

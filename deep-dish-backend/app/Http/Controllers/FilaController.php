@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\FilaAtualizada;
+use App\Events\PosicaoFilaAtualizada;
 use App\Models\ClienteFila;
 use App\Models\Fila;
+use App\Services\EstimativaEsperaService;
 use App\Services\FilaService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -12,19 +15,39 @@ use InvalidArgumentException;
 
 class FilaController extends Controller
 {
-    public function __construct(private FilaService $filaService)
-    {
-    }
+    /**
+     * Teto de sanidade para o tamanho do grupo.
+     *
+     * A regra de negocio de verdade e outra — 'enfileirar' recusa grupo maior
+     * que a maior mesa do salao. Mas ela nao protegia a ESTIMATIVA, que nao
+     * passa por ali: um numero acima do int4 do Postgres chegava cru no
+     * 'qntd_pessoas BETWEEN ? AND ?' do EstimativaEsperaService e virava 500.
+     *
+     * 100 e generoso de proposito: nao e aqui que se decide o que cabe no salao,
+     * so se o numero e plausivel. O max="20" do input e conveniencia de tela,
+     * nao fronteira de validacao.
+     */
+    private const MAX_PESSOAS = 100;
+
+    public function __construct(
+        private FilaService $filaService,
+        private EstimativaEsperaService $estimativaService,
+    ) {}
 
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'restaurante_id' => ['required', 'string', 'uuid', 'exists:restaurante,id'],
-            'horario_reserva' => ['required', 'date', 'after:now'],
-            'qntd_pessoas'   => ['required', 'integer', 'min:1'],
+            // Opcional: sem horário, entra na fila de agora. A tela do cliente não
+            // pede horário para entrar na fila — quem escolhe data e hora é reserva.
+            'horario_reserva' => ['sometimes', 'date', 'after:now'],
+            'qntd_pessoas' => ['required', 'integer', 'min:1', 'max:'.self::MAX_PESSOAS],
         ]);
 
-        $horarioUTC = Carbon::parse($validated['horario_reserva'])->utc()->format('Y-m-d H:i:s');
+        $horarioReserva = isset($validated['horario_reserva'])
+            ? Carbon::parse($validated['horario_reserva'])->utc()
+            : Fila::janelaAtual();
+        $horarioUTC = $horarioReserva->format('Y-m-d H:i:s');
 
         try {
             $clienteFila = $this->filaService->enfileirar(
@@ -37,11 +60,20 @@ class FilaController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        $clienteFila->load('fila');
+        $clienteFila->load('fila')->append(['posicao', 'protegida', 'protecao_em_minutos']);
+
+        $estimativa = $this->estimativaService->estimar(
+            $validated['restaurante_id'],
+            (int) $clienteFila->posicao,
+            (int) $validated['qntd_pessoas'],
+            $horarioReserva
+        );
+
+        $data = array_merge($clienteFila->toArray(), $estimativa);
 
         return response()->json([
-            'message' => 'Você está na posição ' . $clienteFila->posicao . ' da fila.',
-            'data' => $clienteFila,
+            'message' => 'Você está na posição '.$clienteFila->posicao.' da fila.',
+            'data' => $data,
         ], 201);
     }
 
@@ -66,12 +98,33 @@ class FilaController extends Controller
         $restauranteId = auth('restaurante')->id();
 
         $entries = ClienteFila::with(['fila', 'cliente'])
-            ->whereHas('fila', fn ($q) => $q
-                ->where('restaurante_id', $restauranteId)
-                ->where('status', Fila::STATUS_ABERTA)
-            )
-            ->orderBy('created_at')
+            ->aguardandoNoRestaurante((string) $restauranteId)
+            ->emOrdemDeChegada()
             ->get();
+
+        // Posição calculada em memória: a lista já está ordenada e contém só ativos.
+        // Usar ->append('posicao') aqui dispararia um COUNT por registro. É uma
+        // sequência única para o restaurante inteiro (todas as filas abertas),
+        // a mesma de ClienteFila::getPosicaoAttribute.
+        $agora = now();
+
+        $entries->values()->each(function ($registro, $i) use ($restauranteId, $agora) {
+            $posicao = $i + 1;
+            $registro->setAttribute('posicao', $posicao);
+            $registro->setAttribute('protegida', $registro->estaProtegida($agora));
+            $registro->setAttribute('protecao_em_minutos', $registro->protecaoEmMinutos($agora));
+
+            $estimativa = $this->estimativaService->estimar(
+                (string) $restauranteId,
+                $posicao,
+                (int) $registro->qntd_pessoas,
+                $registro->fila->horario_reserva
+            );
+
+            foreach ($estimativa as $campo => $valor) {
+                $registro->setAttribute($campo, $valor);
+            }
+        });
 
         return response()->json($entries);
     }
@@ -81,7 +134,9 @@ class FilaController extends Controller
     {
         $restauranteId = auth('restaurante')->id();
 
-        $registro = ClienteFila::whereKey($id)
+        $registro = ClienteFila::query()
+            ->ativas()
+            ->whereKey($id)
             ->whereHas('fila', fn ($q) => $q->where('restaurante_id', $restauranteId))
             ->first();
 
@@ -90,11 +145,13 @@ class FilaController extends Controller
         }
 
         $fila = $registro->fila;
-        $registro->delete();
 
-        if (! $fila->clienteFilas()->exists()) {
-            $fila->update(['status' => Fila::STATUS_ENCERRADA]);
-        }
+        $registro->registrarSaida(ClienteFila::STATUS_SAIDA_REMOVIDO);
+
+        $this->filaService->encerrarFilaSeVazia($fila);
+
+        FilaAtualizada::dispatch((string) $restauranteId);
+        PosicaoFilaAtualizada::dispatch((string) $fila->id);
 
         return response()->json(['message' => 'Removido da fila.']);
     }
@@ -106,7 +163,8 @@ class FilaController extends Controller
             'horario_reserva' => ['required', 'date'],
         ]);
 
-        $horarioUTC = Carbon::parse($validated['horario_reserva'])->utc()->format('Y-m-d H:i:s');
+        $horarioReserva = Carbon::parse($validated['horario_reserva'])->utc();
+        $horarioUTC = $horarioReserva->format('Y-m-d H:i:s');
 
         $registro = $this->filaService->consultarPosicao(
             (string) auth('api')->id(),
@@ -117,11 +175,52 @@ class FilaController extends Controller
         if (! $registro) {
             return response()->json([
                 'message' => 'Você não está na fila para este horário.',
+                'status_saida' => $this->filaService->statusSaida(
+                    (string) auth('api')->id(),
+                    $validated['restaurante_id'],
+                    $horarioUTC
+                ),
             ], 404);
         }
 
         $registro->load('fila');
 
-        return response()->json($registro);
+        $estimativa = $this->estimativaService->estimar(
+            $validated['restaurante_id'],
+            (int) $registro->posicao,
+            (int) $registro->qntd_pessoas,
+            $horarioReserva
+        );
+
+        $data = array_merge($registro->toArray(), $estimativa);
+
+        return response()->json($data);
+    }
+
+    // ─── Cliente: estimativa antes de entrar na fila ────────
+    public function estimativa(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'restaurante_id' => ['required', 'string', 'uuid', 'exists:restaurante,id'],
+            // Mesma regra do store: sem horário, é a estimativa da fila de agora.
+            'horario_reserva' => ['sometimes', 'date'],
+            'qntd_pessoas' => ['required', 'integer', 'min:1', 'max:'.self::MAX_PESSOAS],
+        ]);
+
+        $horarioReserva = isset($validated['horario_reserva'])
+            ? Carbon::parse($validated['horario_reserva'])->utc()
+            : Fila::janelaAtual();
+
+        // Posição hipotética: quem entrasse agora ficaria depois de todo mundo já ativo.
+        $posicaoEstimada = $this->filaService->contarAtivos($validated['restaurante_id']) + 1;
+
+        $estimativa = $this->estimativaService->estimar(
+            $validated['restaurante_id'],
+            $posicaoEstimada,
+            (int) $validated['qntd_pessoas'],
+            $horarioReserva
+        );
+
+        return response()->json($estimativa);
     }
 }

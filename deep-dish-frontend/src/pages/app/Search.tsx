@@ -42,7 +42,7 @@ const Search: React.FC = () => {
     <div className="space-y-6 animate-fade-in">
       <button
         onClick={() => navigate('/app')}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[44px]"
       >
         <ArrowLeft className="h-4 w-4" />
         Voltar
@@ -96,6 +96,7 @@ const Search: React.FC = () => {
             <Label>CEP</Label>
             <Input
               placeholder="00000-000"
+              inputMode="numeric"
               value={cep}
               onChange={e => handleCep(e.target.value)}
             />
@@ -110,7 +111,7 @@ const Search: React.FC = () => {
                 key={t.value}
                 type="button"
                 onClick={() => setTipo(tipo === t.value ? '' : t.value)}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-200 min-h-[32px] ${
+                className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-200 min-h-[40px] ${
                   tipo === t.value
                     ? 'bg-primary text-primary-foreground shadow-sm'
                     : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'

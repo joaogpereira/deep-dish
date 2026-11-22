@@ -23,8 +23,24 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
+        <!--
+            Postgres local descartável (serviço postgres_test em
+            docker-compose.yml na raiz do repo), não sqlite: raw SQL do
+            Postgres (interval '1 hour', ALTER COLUMN ...) quebra em
+            sqlite. Isto tem que ficar em sincronia com HOSTS_SEGUROS em
+            tests/TestCase.php (deny-by-default) e com o env: do job
+            "backend" em .github/workflows/ci.yml — a CI vence estes
+            valores porque já define as mesmas variáveis antes do PHPUnit
+            rodar (ausência de force="true" abaixo é proposital, ver
+            comentário no ci.yml).
+        -->
+        <env name="DB_CONNECTION" value="pgsql"/>
+        <env name="DB_HOST" value="127.0.0.1"/>
+        <env name="DB_PORT" value="5433"/>
+        <env name="DB_DATABASE" value="deepdish_test"/>
+        <env name="DB_USERNAME" value="postgres"/>
+        <env name="DB_PASSWORD" value="secret"/>
+        <env name="DB_SSLMODE" value="disable"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

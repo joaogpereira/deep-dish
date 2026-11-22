@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Funcionario extends Model
 {
+    use HasFactory;
     use HasUuids;
 
     protected $table = 'funcionario';
@@ -30,7 +32,7 @@ class Funcionario extends Model
     {
         return [
             'data_nascimento' => 'date',
-            'ativo'           => 'boolean',
+            'ativo' => 'boolean',
         ];
     }
 

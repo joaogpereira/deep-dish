@@ -12,9 +12,9 @@ class EnsureEmailIsVerified
     {
         $user = $request->user('api') ?? $request->user('restaurante');
 
-        if ($user && !$user->hasVerifiedEmail()) {
+        if ($user && ! $user->hasVerifiedEmail()) {
             return response()->json([
-                'error'   => 'email_not_verified',
+                'error' => 'email_not_verified',
                 'message' => 'Verifique seu e-mail antes de continuar.',
             ], 403);
         }

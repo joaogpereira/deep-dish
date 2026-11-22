@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { Cliente, Restaurante } from "@/types";
 import { authService } from "@/services/auth.service";
+import { disconnectEcho } from "@/lib/echo";
 
 type User = Cliente | Restaurante;
 
@@ -184,6 +185,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // rede falhou — mesmo assim desloga localmente
     } finally {
       setUser(null);
+      disconnectEcho(); // sem isto o socket segue aberto depois do logout
       localStorage.removeItem("jwt");
       localStorage.removeItem("tipo_usuario");
       localStorage.removeItem("user");

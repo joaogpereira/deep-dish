@@ -63,6 +63,41 @@ Formato obrigatório:
 -   Somente o **Tech Lead** pode aprovar PRs e realizar merges para
     `develop` e `main`.
 
+### Regras aplicadas automaticamente pelo GitHub
+
+As exigências abaixo não dependem de ninguém lembrar: o botão de merge fica
+bloqueado até que todas sejam atendidas. Valem inclusive para quem é admin do
+repositório.
+
+| Exigência | O que significa |
+|---|---|
+| **Pull Request** | Push direto em `develop` ou `main` é recusado pelo servidor |
+| **1 aprovação** | De outra pessoa — o GitHub não permite aprovar o próprio PR |
+| **Aprovação recente** | Commit novo derruba a aprovação anterior, exigindo nova revisão |
+| **CI verde** | Os checks `Backend (PHP 8.2)` e `Frontend (Node 20)` precisam passar |
+| **Branch atualizada** | O PR precisa conter a `develop` mais recente antes do merge |
+| **Conversas resolvidas** | Todo comentário de revisão precisa ser marcado como resolvido |
+
+**Sobre a branch atualizada:** se alguém mergear enquanto o seu PR está aberto,
+aparece o botão **Update branch**. Clique nele e aguarde a CI rodar de novo
+(~40s). Isso existe porque dois PRs verdes separadamente podem quebrar quando
+combinados — foi o que aconteceu em agosto/2026 e custou um PR extra só de
+conserto.
+
+### Procedimento de emergência
+
+Se o GitHub Actions estiver fora do ar, os checks nunca reportam e **ninguém
+consegue mergear** — nem o admin. Nesse caso:
+
+1.  O admin vai em **Settings → Branches → Edit** na branch travada;
+2.  desmarca temporariamente *Require status checks to pass*;
+3.  faz o merge;
+4.  **religa a opção imediatamente**;
+5.  registra no PR o motivo do desbloqueio.
+
+Isso é exceção, não atalho. Se estiver acontecendo com frequência, o problema
+é a CI, não a regra.
+
 ------------------------------------------------------------------------
 
 ## 5. Code Review Padronizado
@@ -115,9 +150,12 @@ Itens marcados como obrigatórios devem ser corrigidos antes do merge.
 
 ## Regras Finais
 
--   Commits diretos em `main` ou `develop` não são permitidos.
+-   Commits diretos em `main` ou `develop` não são permitidos — o GitHub
+    recusa o push.
 -   Branch fora do padrão será recusada.
--   Merge sem aprovação do Tech Lead é proibido.
+-   Merge sem aprovação do Tech Lead é proibido — e agora bloqueado
+    tecnicamente, não só por convenção.
+-   Merge com a CI vermelha é bloqueado.
 -   Notes do Tech Lead devem ser tratadas como obrigatórias.
 
 ------------------------------------------------------------------------

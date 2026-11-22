@@ -7,9 +7,7 @@ use Illuminate\Http\Request;
 
 class RestauranteController extends Controller
 {
-    public function __construct(private RestauranteService $service)
-    {
-    }
+    public function __construct(private RestauranteService $service) {}
 
     /**
      * Lista / busca restaurantes por nome e endereço.
@@ -42,13 +40,11 @@ class RestauranteController extends Controller
     {
         $restaurante = $this->service->findById($id);
 
-        if (!$restaurante) {
+        if (! $restaurante) {
             return response()->json(['message' => 'Restaurante não encontrado'], 404);
         }
 
         return response()->json($restaurante);
 
     }
-
 }
-

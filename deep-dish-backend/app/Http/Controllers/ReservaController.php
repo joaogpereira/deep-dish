@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\OperacaoAtualizada;
+use App\Events\ReservaAtualizada;
 use App\Models\ClienteMesa;
 use App\Models\Mesa;
 use App\Models\Restaurante;
 use App\Services\FilaService;
+use App\Services\MesaLimpezaService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,8 +21,11 @@ class ReservaController extends Controller
     /**
      * Duração padrão de uma reserva (em minutos).
      * Por enquanto fixa em 1 hora — futura feature: configurável por restaurante.
+     *
+     * Mora no model, junto do scope que a usa para calcular sobreposição; aqui
+     * fica o apelido, porque meio projeto já referencia ReservaController::.
      */
-    public const DURACAO_RESERVA_MINUTOS = 60;
+    public const DURACAO_RESERVA_MINUTOS = ClienteMesa::DURACAO_RESERVA_MINUTOS;
 
     /**
      * Tolerância para no-show: após esse tempo sem check-in,
@@ -28,7 +34,7 @@ class ReservaController extends Controller
     private const TOLERANCIA_NO_SHOW_MINUTOS = 60;
 
     /** Status considerados "ativos" (bloqueia mesa no horário). */
-    public const STATUS_ATIVOS = ['confirmada', 'em_andamento'];
+    public const STATUS_ATIVOS = ClienteMesa::STATUS_ATIVOS;
 
     /**
      * Minutos de folga após o fechamento do restaurante antes de expirar sessões.
@@ -63,7 +69,7 @@ class ReservaController extends Controller
             ->get();
 
         $sessaoExpirada = $emAndamento->filter(function (ClienteMesa $reserva) {
-            $restaurante   = $reserva->mesa?->restaurante;
+            $restaurante = $reserva->mesa?->restaurante;
             $fechamentoStr = $restaurante?->horario_fechamento; // "HH:MM" ou null
 
             $referencia = $reserva->horario_checkin ?? $reserva->horario_reserva;
@@ -80,7 +86,7 @@ class ReservaController extends Controller
 
             // Monta o datetime de fechamento do dia da reserva
             [$fh, $fm] = array_map('intval', explode(':', substr($fechamentoStr, 0, 5)));
-            $dataBase  = Carbon::parse($referencia)->startOfDay();
+            $dataBase = Carbon::parse($referencia)->startOfDay();
             $fechamento = $dataBase->copy()->setTime($fh, $fm);
 
             // Restaurantes que fecham depois da meia-noite (ex: 02:00)
@@ -97,16 +103,42 @@ class ReservaController extends Controller
             return 0;
         }
 
-        DB::transaction(function () use ($vencidas) {
+        $restaurantesAfetados = [];
+
+        DB::transaction(function () use ($vencidas, &$restaurantesAfetados) {
             /** @var ClienteMesa $reserva */
             foreach ($vencidas as $reserva) {
                 $reserva->update(['status' => 'expirada']);
+                // No-show não tem check-in, então a duração fica NULL sozinha;
+                // as sessões encerradas pelo fechamento gravam duração real.
+                $reserva->registrarSaida();
                 $mesa = Mesa::find($reserva->mesa_id);
-                if ($mesa && in_array($mesa->status, ['reservada', 'ocupada'])) {
-                    $mesa->update(['status' => 'livre']);
+                if ($mesa) {
+                    // 'ocupada' significa que houve check-in, logo alguem sentou e a
+                    // mesa precisa de limpeza (#171). No-show nunca chega aqui
+                    // 'ocupada', entao vai direto para 'livre' — e e so isso que
+                    // separa os dois casos.
+                    if ($mesa->status === Mesa::STATUS_OCUPADA) {
+                        app(MesaLimpezaService::class)->marcarParaLimpeza($mesa);
+                    } elseif ($mesa->status === 'reservada') {
+                        $mesa->update(['status' => Mesa::STATUS_LIVRE]);
+                    }
+                    // Chave do array: expirar 10 reservas do mesmo salão avisa o
+                    // painel uma vez, não dez.
+                    $restaurantesAfetados[(string) $mesa->restaurante_id] = true;
                 }
+
+                ReservaAtualizada::dispatch((string) $reserva->cliente_id);
             }
         });
+
+        foreach (array_keys($restaurantesAfetados) as $restauranteId) {
+            OperacaoAtualizada::dispatch($restauranteId);
+
+            // Fora da transação de propósito: cada restaurante promove na sua,
+            // travando só a própria linha.
+            app(FilaService::class)->processarPromocoes($restauranteId);
+        }
 
         return $vencidas->count();
     }
@@ -115,26 +147,26 @@ class ReservaController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'mesa_id'         => 'required|string|uuid|exists:mesa,id',
-            'party_size'      => 'required|integer|min:1|max:20',
+            'mesa_id' => 'required|string|uuid|exists:mesa,id',
+            'party_size' => 'required|integer|min:1|max:20',
             'horario_reserva' => 'required|date|after:now',
         ]);
 
         if ($validator->fails()) {
             return response()->json([
-                'error'   => 'Dados de entrada inválidos',
+                'error' => 'Dados de entrada inválidos',
                 'details' => $validator->errors(),
             ], 422);
         }
 
-        $clienteId         = auth('api')->id();
-        $mesaId            = $request->input('mesa_id');
-        $partySize         = (int) $request->input('party_size');
-        $horarioInput      = $request->input('horario_reserva');
+        $clienteId = auth('api')->id();
+        $mesaId = $request->input('mesa_id');
+        $partySize = (int) $request->input('party_size');
+        $horarioInput = $request->input('horario_reserva');
         // Mantém o offset original (BRT) para validar o horário de funcionamento
         $horarioReservaBRT = Carbon::parse($horarioInput)->setTimezone('America/Sao_Paulo');
         // Converte para UTC para armazenamento e comparações de sobreposição
-        $horarioReserva    = Carbon::parse($horarioInput)->utc();
+        $horarioReserva = Carbon::parse($horarioInput)->utc();
 
         try {
             return DB::transaction(function () use ($clienteId, $mesaId, $partySize, $horarioReserva, $horarioReservaBRT) {
@@ -152,8 +184,8 @@ class ReservaController extends Controller
                 // Valida horário de funcionamento
                 if ($restaurante->horario_abertura && $restaurante->horario_fechamento) {
                     $horaReserva = $horarioReservaBRT->format('H:i');
-                    $abre        = substr($restaurante->horario_abertura, 0, 5);
-                    $fecha       = substr($restaurante->horario_fechamento, 0, 5);
+                    $abre = substr($restaurante->horario_abertura, 0, 5);
+                    $fecha = substr($restaurante->horario_fechamento, 0, 5);
                     if ($horaReserva < $abre || $horaReserva >= $fecha) {
                         return response()->json([
                             'error' => "Este restaurante funciona das {$abre} às {$fecha}.",
@@ -175,9 +207,7 @@ class ReservaController extends Controller
                 $fimReserva = $horarioReserva->copy()->addMinutes(self::DURACAO_RESERVA_MINUTOS);
 
                 $conflito = ClienteMesa::where('mesa_id', $mesaId)
-                    ->whereIn('status', self::STATUS_ATIVOS)
-                    ->where('horario_reserva', '<', $fimReserva)
-                    ->whereRaw("horario_reserva + interval '1 hour' > ?", [$horarioReserva])
+                    ->ativasSobrepondo($horarioReserva, $fimReserva)
                     ->exists();
 
                 if ($conflito) {
@@ -189,9 +219,7 @@ class ReservaController extends Controller
                 // Cliente já tem reserva ativa nesse restaurante no mesmo horário?
                 $duplicada = ClienteMesa::where('cliente_id', $clienteId)
                     ->whereHas('mesa', fn ($q) => $q->where('restaurante_id', $mesa->restaurante_id))
-                    ->whereIn('status', self::STATUS_ATIVOS)
-                    ->where('horario_reserva', '<', $fimReserva)
-                    ->whereRaw("horario_reserva + interval '1 hour' > ?", [$horarioReserva])
+                    ->ativasSobrepondo($horarioReserva, $fimReserva)
                     ->exists();
 
                 if ($duplicada) {
@@ -202,14 +230,17 @@ class ReservaController extends Controller
 
                 // Cria a reserva (mesa permanece 'livre' até o check-in)
                 $reserva = ClienteMesa::create([
-                    'cliente_id'      => $clienteId,
-                    'mesa_id'         => $mesa->id,
+                    'cliente_id' => $clienteId,
+                    'mesa_id' => $mesa->id,
                     'horario_reserva' => $horarioReserva,
-                    'party_size'      => $partySize,
-                    'status'          => 'confirmada',
+                    'party_size' => $partySize,
+                    'status' => 'confirmada',
                 ]);
 
                 $reserva->load(['mesa.restaurante']);
+
+                OperacaoAtualizada::dispatch((string) $mesa->restaurante_id);
+                ReservaAtualizada::dispatch((string) $clienteId);
 
                 return response()->json([
                     'message' => 'Reserva criada com sucesso! Confirme sua chegada com o restaurante para liberar sua mesa.',
@@ -218,6 +249,7 @@ class ReservaController extends Controller
             });
         } catch (\Throwable $e) {
             Log::error('Erro ao criar reserva', ['message' => $e->getMessage()]);
+
             return response()->json(['error' => 'Erro interno ao criar reserva'], 500);
         }
     }
@@ -231,8 +263,8 @@ class ReservaController extends Controller
         self::expirarReservasVencidas();
 
         $clienteId = auth('api')->id();
-        $perPage   = min((int) $request->query('per_page', 10), 50);
-        $grupo     = $request->query('status_group'); // 'active' | 'finished' | null
+        $perPage = min((int) $request->query('per_page', 10), 50);
+        $grupo = $request->query('status_group'); // 'active' | 'finished' | null
 
         $query = ClienteMesa::with(['mesa.restaurante'])
             ->where('cliente_id', $clienteId)
@@ -282,12 +314,24 @@ class ReservaController extends Controller
         }
 
         $reserva->update(['status' => 'cancelada']);
+        // Cancelamento depois do check-in é permanência real; antes dele fica NULL.
+        $reserva->registrarSaida();
 
-        // Libera a mesa se estiver ocupada (check-in já havia sido feito)
+        // Com check-in houve permanencia real, logo a mesa vai para limpeza em vez
+        // de voltar direto ao salao (#171).
         $mesa = Mesa::find($reserva->mesa_id);
-        if ($mesa && $mesa->status === 'ocupada') {
-            $mesa->update(['status' => 'livre']);
+        if ($mesa && $mesa->status === Mesa::STATUS_OCUPADA) {
+            app(MesaLimpezaService::class)->marcarParaLimpeza($mesa);
         }
+
+        if ($mesa) {
+            OperacaoAtualizada::dispatch((string) $mesa->restaurante_id);
+
+            // Cancelar libera lugar: com check-in, a mesa em si; sem ele, a
+            // janela de horário que a reserva segurava. Nos dois casos a fila anda.
+            app(FilaService::class)->processarPromocoes((string) $mesa->restaurante_id);
+        }
+        ReservaAtualizada::dispatch((string) $clienteId);
 
         return response()->json([
             'message' => 'Reserva cancelada.',
@@ -301,8 +345,8 @@ class ReservaController extends Controller
         self::expirarReservasVencidas();
 
         $restauranteId = auth('restaurante')->id();
-        $perPage       = min((int) $request->query('per_page', 10), 50);
-        $grupo         = $request->query('status_group'); // 'active' | 'finished' | null
+        $perPage = min((int) $request->query('per_page', 10), 50);
+        $grupo = $request->query('status_group'); // 'active' | 'finished' | null
 
         $statusAtivos = implode("','", self::STATUS_ATIVOS);
 
@@ -339,7 +383,7 @@ class ReservaController extends Controller
         }
 
         $reserva->update([
-            'status'         => 'em_andamento',
+            'status' => 'em_andamento',
             'horario_checkin' => now(),
         ]);
 
@@ -348,6 +392,9 @@ class ReservaController extends Controller
         if ($mesa && $mesa->status !== 'bloqueada') {
             $mesa->update(['status' => 'ocupada']);
         }
+
+        OperacaoAtualizada::dispatch((string) $restauranteId);
+        ReservaAtualizada::dispatch((string) $reserva->cliente_id);
 
         return response()->json([
             'message' => 'Check-in realizado! Mesa liberada para o cliente.',
@@ -374,15 +421,26 @@ class ReservaController extends Controller
         }
 
         $reserva->update(['status' => 'liberada']);
+        $reserva->registrarSaida();
 
-        // Mesa volta a ficar livre
+        // Antes a mesa voltava direto para 'livre'. Agora passa por limpeza quando
+        // alguem sentou de fato (#171); liberar reserva sem check-in continua
+        // devolvendo a mesa na hora, porque nao houve uso.
         $mesa = $reserva->mesa;
         if ($mesa) {
-            $mesa->update(['status' => 'livre']);
+            if ($mesa->status === Mesa::STATUS_OCUPADA) {
+                app(MesaLimpezaService::class)->marcarParaLimpeza($mesa);
+            } else {
+                $mesa->update(['status' => Mesa::STATUS_LIVRE]);
+            }
 
-            // Promove o próximo da fila para esta mesa, se houver
-            app(FilaService::class)->promoverProximoParaMesa($mesa->restaurante_id, $mesa->fresh());
+            // A promocao continua sendo chamada: mesmo que a mesa va para limpeza, a
+            // janela de horario que a reserva segurava foi devolvida.
+            app(FilaService::class)->processarPromocoes((string) $mesa->restaurante_id);
         }
+
+        OperacaoAtualizada::dispatch((string) $restauranteId);
+        ReservaAtualizada::dispatch((string) $reserva->cliente_id);
 
         return response()->json([
             'message' => 'Mesa liberada.',
@@ -390,7 +448,9 @@ class ReservaController extends Controller
         ]);
     }
 
-    // ─── Restaurante: exclui permanentemente reserva finalizada
+    // ─── Restaurante: remove reserva finalizada do painel ───
+    // Soft delete: a linha sai das listagens mas o histórico de permanência
+    // continua no banco, acessível ao Analytics via withTrashed().
     public function forceDestroyRestaurante(string $id): JsonResponse
     {
         $restauranteId = auth('restaurante')->id();
@@ -408,6 +468,8 @@ class ReservaController extends Controller
         }
 
         $reserva->delete();
+
+        OperacaoAtualizada::dispatch((string) $restauranteId);
 
         return response()->json(['message' => 'Reserva excluída.']);
     }

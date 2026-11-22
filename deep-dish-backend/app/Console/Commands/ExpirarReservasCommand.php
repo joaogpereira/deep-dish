@@ -15,6 +15,7 @@ class ExpirarReservasCommand extends Command
     {
         $total = ReservaController::expirarReservasVencidas();
         $this->info("Reservas expiradas: {$total}");
+
         return self::SUCCESS;
     }
 }

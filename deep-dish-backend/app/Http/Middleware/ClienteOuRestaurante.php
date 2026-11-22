@@ -5,7 +5,8 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-//Função de middleware para verificar se o usuario é restaurante e logo pode acessar qualquer página que um cliente consegue.
+
+// Função de middleware para verificar se o usuario é restaurante e logo pode acessar qualquer página que um cliente consegue.
 
 class ClienteOuRestaurante
 {
@@ -17,6 +18,7 @@ class ClienteOuRestaurante
         if (auth('restaurante')->check()) {
             return $next($request);
         }
-        return response()->json(['message'=> 'Unauthorized'],401);
+
+        return response()->json(['message' => 'Unauthorized'], 401);
     }
 }

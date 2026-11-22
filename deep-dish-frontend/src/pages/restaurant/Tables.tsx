@@ -1,16 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRealtime } from '@/hooks/useRealtime';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import StatusBadge from '@/components/StatusBadge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Mesa } from '@/types';
+import { Mesa, MesaStatus } from '@/types';
 import { mesasService } from '@/services/mesas.service';
-import { Plus, Pencil, Lock, Unlock, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Lock, Unlock, Trash2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 const Tables: React.FC = () => {
+  const { user } = useAuth();
   const [tables, setTables] = useState<Mesa[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -19,18 +22,27 @@ const Tables: React.FC = () => {
   const [formNumber, setFormNumber] = useState('');
   const [formCapacity, setFormCapacity] = useState('4');
 
-  const fetchTables = async () => {
+  const fetchTables = useCallback(async (silent = false) => {
     try {
       const data = await mesasService.list();
       setTables(data);
     } catch {
-      toast.error('Erro ao carregar mesas.');
+      if (!silent) toast.error('Erro ao carregar mesas.');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchTables(); }, []);
+  useEffect(() => { fetchTables(); }, [fetchTables]);
+
+  // Mapa de mesas ao vivo: check-in ocupa, liberação devolve para livre.
+  const recarregar = useCallback(() => { fetchTables(true); }, [fetchTables]);
+
+  useRealtime(
+    user?.id ? `restaurante.${user.id}` : undefined,
+    { 'operacao.atualizada': recarregar },
+    recarregar
+  );
 
   const openNew = () => { setEditTable(null); setFormNumber(''); setFormCapacity('4'); setDialogOpen(true); };
   const openEdit = (t: Mesa) => { setEditTable(t); setFormNumber(String(t.numero)); setFormCapacity(String(t.capacidade)); setDialogOpen(true); };
@@ -54,7 +66,7 @@ const Tables: React.FC = () => {
         toast.success('Mesa criada!');
       }
       setDialogOpen(false);
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err?.message || 'Erro ao salvar mesa.');
     } finally {
       setSaving(false);
@@ -67,8 +79,28 @@ const Tables: React.FC = () => {
       const updated = await mesasService.update(t.id, { status: next });
       setTables(prev => prev.map(tb => tb.id === t.id ? updated : tb));
       toast.success(`Mesa ${t.numero} ${next === 'bloqueada' ? 'bloqueada' : 'liberada'}.`);
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err?.message || 'Erro ao atualizar status.');
+    }
+  };
+
+  /**
+   * Transicoes do ciclo de limpeza (#171). Mesmo padrao do toggleStatus: aplica a
+   * resposta do servidor, que e quem sabe o estado final — o backend valida a
+   * transicao e pode recusar.
+   */
+  const avancarLimpeza = async (t: Mesa) => {
+    const next: MesaStatus = t.status === 'aguardando_limpeza' ? 'em_limpeza' : 'livre';
+    try {
+      const updated = await mesasService.update(t.id, { status: next });
+      setTables(prev => prev.map(tb => tb.id === t.id ? updated : tb));
+      toast.success(
+        next === 'em_limpeza'
+          ? `Limpeza da mesa ${t.numero} iniciada.`
+          : `Mesa ${t.numero} pronta.`
+      );
+    } catch (err) {
+      toast.error(err?.message || 'Erro ao atualizar limpeza.');
     }
   };
 
@@ -77,7 +109,7 @@ const Tables: React.FC = () => {
       await mesasService.remove(t.id);
       setTables(prev => prev.filter(tb => tb.id !== t.id));
       toast.success(`Mesa ${t.numero} removida.`);
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err?.message || 'Erro ao remover mesa.');
     }
   };
@@ -138,6 +170,17 @@ const Tables: React.FC = () => {
                   <><Lock className="h-3.5 w-3.5 mr-1" />Bloquear</>
                 )}
               </Button>
+              {(t.status === 'aguardando_limpeza' || t.status === 'em_limpeza') && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-8 px-2.5 text-xs"
+                  onClick={() => avancarLimpeza(t)}
+                >
+                  <Sparkles className="h-3.5 w-3.5 mr-1" />
+                  {t.status === 'aguardando_limpeza' ? 'Iniciar limpeza' : 'Limpeza concluída'}
+                </Button>
+              )}
               <Button
                 variant="destructive"
                 size="sm"

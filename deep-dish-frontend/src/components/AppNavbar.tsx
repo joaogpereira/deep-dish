@@ -18,7 +18,7 @@ const AppNavbar: React.FC = () => {
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-xl border-b border-border/60">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-xl border-b border-border/60 safe-area-top">
         <div className="container mx-auto flex h-14 items-center justify-between px-4">
           <Link to="/app" className="flex items-center gap-2.5 group">
             <div className="h-8 w-8 rounded-lg overflow-hidden transition-transform duration-200 ease-out-expo group-hover:scale-105">

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Fila;
 use App\Models\Restaurante;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -40,10 +41,14 @@ class HorariosController extends Controller
 
             $relations = [];
             if ($tipo === null || $tipo === 'reservas') {
-                $relations[] = 'mesas.clienteMesas';
+                $relations['mesas.clienteMesas'] = fn ($q) => $q;
             }
             if ($tipo === null || $tipo === 'fila') {
-                $relations[] = 'filas.clienteFilas';
+                $relations['filas'] = fn ($q) => $q->where('status', Fila::STATUS_ABERTA);
+                $relations['filas.clienteFilas'] = fn ($q) => $q
+                    ->ativas()
+                    ->orderBy('created_at')
+                    ->orderBy('id');
             }
 
             if ($relations !== []) {
@@ -65,25 +70,30 @@ class HorariosController extends Controller
 
             $horariosFila = [];
             if ($tipo === null || $tipo === 'fila') {
-                foreach ($restaurante->filas as $fila) {
-                    foreach ($fila->clienteFilas as $clienteFila) {
-                        $horariosFila[] = [
-                            'horario_reserva' => $fila->horario_reserva?->format(\DateTimeInterface::ATOM),
-                            'horario_entrada' => $clienteFila->created_at->format(\DateTimeInterface::ATOM),
-                            'qntd_pessoas' => $clienteFila->qntd_pessoas,
-                            'posicao' => $clienteFila->posicao,
-                            'fila_id' => $fila->id,
-                        ];
-                    }
+                // Posição única do restaurante, na ordem de chegada entre todas as
+                // filas abertas — a mesma de ClienteFila::getPosicaoAttribute.
+                $entradas = $restaurante->filas
+                    ->flatMap(fn ($fila) => $fila->clienteFilas->each->setRelation('fila', $fila))
+                    ->sortBy([['created_at', 'asc'], ['id', 'asc']])
+                    ->values();
+
+                foreach ($entradas as $i => $clienteFila) {
+                    $horariosFila[] = [
+                        'horario_reserva' => $clienteFila->fila->horario_reserva?->format(\DateTimeInterface::ATOM),
+                        'horario_entrada' => $clienteFila->created_at->format(\DateTimeInterface::ATOM),
+                        'qntd_pessoas' => $clienteFila->qntd_pessoas,
+                        'posicao' => $i + 1,
+                        'fila_id' => $clienteFila->fila_id,
+                    ];
                 }
             }
 
             $data = [
-                'restaurante_id'     => $restaurante->id,
-                'nome'               => $restaurante->name,
-                'horario_abertura'   => $restaurante->horario_abertura,
+                'restaurante_id' => $restaurante->id,
+                'nome' => $restaurante->name,
+                'horario_abertura' => $restaurante->horario_abertura,
                 'horario_fechamento' => $restaurante->horario_fechamento,
-                'fila_ativa'         => (bool) $restaurante->fila_ativa,
+                'fila_ativa' => (bool) $restaurante->fila_ativa,
             ];
 
             if ($tipo === null || $tipo === 'reservas') {
